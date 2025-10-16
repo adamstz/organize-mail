@@ -15,9 +15,10 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
 } from '@mui/icons-material';
+import { Email } from '../types/email';
 
 // Example email data
-const exampleEmails = [
+const exampleEmails: Email[] = [
   {
     id: 1,
     subject: 'Project Update Meeting',
@@ -44,7 +45,7 @@ const exampleEmails = [
   },
 ];
 
-const getPriorityColor = (priority) => {
+const getPriorityColor = (priority: Email['priority']): 'error' | 'warning' | 'success' | 'default' => {
   switch (priority.toLowerCase()) {
     case 'high':
       return 'error';
@@ -57,21 +58,21 @@ const getPriorityColor = (priority) => {
   }
 };
 
-const EmailList = () => {
-  const [expandedId, setExpandedId] = useState(null);
-  const [emails, setEmails] = useState(exampleEmails);
+const EmailList: React.FC = () => {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [emails, setEmails] = useState<Email[]>(exampleEmails);
 
-  const handleExpand = (id) => {
+  const handleExpand = (id: number): void => {
     setExpandedId(expandedId === id ? null : id);
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = (id: number): void => {
     setEmails(emails.filter(email => email.id !== id));
   };
 
   return (
-    <Paper elevation={3} sx={{ width: "100%", mt: 4, p: 2 }}>
-      <List>
+    <Paper elevation={0} sx={{ width: "100%", p: 2, bgcolor: 'transparent' }}>
+      <List sx={{ width: '100%', maxWidth: 'none' }}>
         {emails.map((email) => (
           <React.Fragment key={email.id}>
             <ListItem
@@ -81,6 +82,9 @@ const EmailList = () => {
                 '&:hover': { backgroundColor: 'action.hover' },
                 borderBottom: '1px solid',
                 borderColor: 'divider',
+                bgcolor: 'background.paper',
+                mb: 1,
+                borderRadius: 1,
               }}
             >
               <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>

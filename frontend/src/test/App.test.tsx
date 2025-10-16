@@ -10,7 +10,6 @@ describe('App Component', () => {
 
   it('renders email list component', () => {
     render(<App />);
-    // Check for a known email subject from our example data
     expect(screen.getByText('Project Update Meeting')).toBeInTheDocument();
   });
 });

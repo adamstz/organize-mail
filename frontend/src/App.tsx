@@ -12,7 +12,7 @@ const theme = createTheme({
   },
 });
 
-function App() {
+const App: React.FC = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -23,11 +23,11 @@ function App() {
           </Typography>
         </Toolbar>
       </AppBar>
-      <Container maxWidth={false}>
+      <Container maxWidth={false} disableGutters sx={{ height: '100vh', bgcolor: 'grey.100' }}>
         <EmailList />
       </Container>
     </ThemeProvider>
-  )
-}
+  );
+};
 
-export default App
+export default App;

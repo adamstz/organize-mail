@@ -6,15 +6,14 @@ describe('EmailList Component', () => {
   it('renders email list with correct number of items', () => {
     render(<EmailList />);
     const emailItems = screen.getAllByRole('listitem');
-    expect(emailItems).toHaveLength(3); // We have 3 example emails
+    expect(emailItems).toHaveLength(3);
   });
 
-  it('shows email details when clicked', async () => {
+  it('shows email details when clicked', () => {
     render(<EmailList />);
     const firstEmail = screen.getByText('Project Update Meeting');
     fireEvent.click(firstEmail);
     
-    // Check if the expanded content is visible
     expect(screen.getByText(/Dear team/)).toBeInTheDocument();
   });
 
