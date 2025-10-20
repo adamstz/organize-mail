@@ -34,8 +34,10 @@ describe('EmailList Component', () => {
     const mediumPriority = screen.getByText('Medium');
     const lowPriority = screen.getByText('Low');
 
-    expect(highPriority).toHaveClass('MuiChip-colorError');
-    expect(mediumPriority).toHaveClass('MuiChip-colorWarning');
-    expect(lowPriority).toHaveClass('MuiChip-colorSuccess');
+    // The text node returned by getByText is the inner span of the MUI Chip.
+    // Assert against the Chip wrapper (closest element with the MuiChip-root class)
+    expect(highPriority.closest('.MuiChip-root')).toHaveClass('MuiChip-colorError');
+    expect(mediumPriority.closest('.MuiChip-root')).toHaveClass('MuiChip-colorWarning');
+    expect(lowPriority.closest('.MuiChip-root')).toHaveClass('MuiChip-colorSuccess');
   });
 });
