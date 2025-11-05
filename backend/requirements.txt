@@ -4,3 +4,8 @@ google-api-python-client
 google-auth-oauthlib
 google-cloud-pubsub
 pydantic
+httpx  # Required for FastAPI TestClient
+
+# LLM providers (optional - install what you need)
+openai>=1.0.0
+anthropic>=0.18.0
