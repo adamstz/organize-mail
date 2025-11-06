@@ -25,6 +25,12 @@ import urllib.error
 
 
 class LLMProcessor:
+    # Shared LLM configuration
+    SYSTEM_MESSAGE = "You are an email classification assistant. Return only valid JSON with no explanations."
+    TEMPERATURE = 0.3
+    MAX_TOKENS = 200
+    TIMEOUT = 30
+    
     def __init__(self, config: Dict | None = None):
         self.config = config or {}
         self.provider = self._detect_provider()
@@ -77,26 +83,40 @@ class LLMProcessor:
     def categorize_message(self, subject: str, body: str) -> Dict:
         """Return a classification dict for a message.
 
-        Example return: {"labels": ["finance", "important"], "priority": "high"}
+        Example return: {"labels": ["finance", "important"], "priority": "high", "summary": "Invoice payment reminder"}
         """
+        # Use rule-based for rules provider
+        if self.provider == "rules":
+            return self._rule_based(subject, body)
+        
         try:
-            if self.provider == "openai":
-                return self._categorize_openai(subject, body)
-            elif self.provider == "anthropic":
-                return self._categorize_anthropic(subject, body)
-            elif self.provider == "ollama":
-                return self._categorize_ollama(subject, body)
-            elif self.provider == "command":
-                return self._categorize_command(subject, body)
+            return self._categorize_with_llm(subject, body)
         except Exception as e:
             # Log the error and fall back to rules
             print(f"LLM categorization failed ({self.provider}): {e}")
-        
-        # Fallback to rule-based
-        return self._rule_based(subject, body)
+            return self._rule_based(subject, body)
 
-    def _categorize_openai(self, subject: str, body: str) -> Dict:
-        """Use OpenAI API for classification."""
+    def _categorize_with_llm(self, subject: str, body: str) -> Dict:
+        """Common LLM categorization flow: build prompt → call provider → parse response."""
+        prompt = self._build_classification_prompt(subject, body)
+        
+        # Get raw LLM response based on provider
+        if self.provider == "openai":
+            content = self._call_openai(prompt)
+        elif self.provider == "anthropic":
+            content = self._call_anthropic(prompt)
+        elif self.provider == "ollama":
+            content = self._call_ollama(prompt)
+        elif self.provider == "command":
+            content = self._call_command(subject, body)  # command uses different input format
+        else:
+            raise ValueError(f"Unknown provider: {self.provider}")
+        
+        # Parse the response into our standard format
+        return self._parse_llm_response(content)
+
+    def _call_openai(self, prompt: str) -> str:
+        """Call OpenAI API and return raw response text."""
         try:
             import openai
         except ImportError:
@@ -107,24 +127,19 @@ class LLMProcessor:
             raise ValueError("OPENAI_API_KEY not set")
         
         client = openai.OpenAI(api_key=api_key)
-        
-        prompt = self._build_classification_prompt(subject, body)
-        
         response = client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": "You are an email classification assistant. Return only valid JSON."},
+                {"role": "system", "content": self.SYSTEM_MESSAGE},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,
-            max_tokens=200,
+            temperature=self.TEMPERATURE,
+            max_tokens=self.MAX_TOKENS,
         )
-        
-        content = response.choices[0].message.content.strip()
-        return self._parse_llm_response(content)
+        return response.choices[0].message.content.strip()
 
-    def _categorize_anthropic(self, subject: str, body: str) -> Dict:
-        """Use Anthropic API for classification."""
+    def _call_anthropic(self, prompt: str) -> str:
+        """Call Anthropic API and return raw response text."""
         try:
             import anthropic
         except ImportError:
@@ -135,45 +150,31 @@ class LLMProcessor:
             raise ValueError("ANTHROPIC_API_KEY not set")
         
         client = anthropic.Anthropic(api_key=api_key)
-        
-        prompt = self._build_classification_prompt(subject, body)
-        
         message = client.messages.create(
             model=self.model,
-            max_tokens=200,
-            temperature=0.3,
+            max_tokens=self.MAX_TOKENS,
+            temperature=self.TEMPERATURE,
             messages=[
                 {"role": "user", "content": prompt}
             ]
         )
-        
-        content = message.content[0].text.strip()
-        return self._parse_llm_response(content)
+        return message.content[0].text.strip()
 
-    def _categorize_ollama(self, subject: str, body: str) -> Dict:
-        """Use Ollama API for classification."""
+    def _call_ollama(self, prompt: str) -> str:
+        """Call Ollama API and return raw response text."""
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         
-        prompt = self._build_classification_prompt(subject, body)
-        
-        # Ollama chat API payload
         payload = {
             "model": self.model,
             "messages": [
-                {
-                    "role": "system",
-                    "content": "You are an email classification assistant. Return only valid JSON with no explanations."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
+                {"role": "system", "content": self.SYSTEM_MESSAGE},
+                {"role": "user", "content": prompt}
             ],
             "stream": False,
             "format": "json",  # Request JSON output format
             "options": {
-                "temperature": 0.3,
-                "num_predict": 200,
+                "temperature": self.TEMPERATURE,
+                "num_predict": self.MAX_TOKENS,
             }
         }
         
@@ -185,33 +186,36 @@ class LLMProcessor:
             method="POST"
         )
         
-        with urllib.request.urlopen(req, timeout=30) as response:
+        with urllib.request.urlopen(req, timeout=self.TIMEOUT) as response:
             result = json.load(response)
-            content = result.get("message", {}).get("content", "")
-            return self._parse_llm_response(content)
+            return result.get("message", {}).get("content", "")
 
-    def _categorize_command(self, subject: str, body: str) -> Dict:
-        """Use external command for classification."""
+    def _call_command(self, subject: str, body: str) -> str:
+        """Call external command and return raw response text.
+        
+        Note: Command provider uses different input format (subject/body dict)
+        rather than pre-built prompt, so it returns JSON directly.
+        """
         cmd = os.environ.get("ORGANIZE_MAIL_LLM_CMD")
         if not cmd:
             raise ValueError("ORGANIZE_MAIL_LLM_CMD not set")
         
         inp = json.dumps({"subject": subject, "body": body}, ensure_ascii=False).encode("utf-8")
         args = shlex.split(cmd)
-        proc = subprocess.run(args, input=inp, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        proc = subprocess.run(args, input=inp, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=self.TIMEOUT)
         
         if proc.returncode != 0:
             raise RuntimeError(f"Command failed with exit code {proc.returncode}")
         
-        out = proc.stdout.decode("utf-8").strip()
-        return json.loads(out)
+        return proc.stdout.decode("utf-8").strip()
+
 
     def _build_classification_prompt(self, subject: str, body: str) -> str:
         """Build a structured prompt for LLM classification."""
         # Truncate body to avoid token limits
         body_truncated = body[:2000] if body else ""
         
-        return f"""Classify this email into categories and assign a priority level.
+        return f"""Classify this email into categories, assign a priority level, and provide a brief summary.
 
 Email to classify:
 Subject: {subject}
@@ -220,9 +224,10 @@ Body: {body_truncated}
 Instructions:
 - Choose the most relevant category labels from: finance, security, meetings, personal, work, shopping, social, news, promotions, spam
 - Assign priority: "high" (urgent/important), "normal" (routine), or "low" (can wait)
+- Write a brief summary (1-2 sentences) of the email's main purpose
 - Return ONLY a JSON object in this exact format:
 
-{{"labels": ["category1", "category2"], "priority": "normal"}}
+{{"labels": ["category1", "category2"], "priority": "normal", "summary": "Brief description of the email"}}
 
 Do not include explanations or markdown. Only output valid JSON."""
 
@@ -264,6 +269,14 @@ Do not include explanations or markdown. Only output valid JSON."""
             if result["priority"] not in ("high", "normal", "low"):
                 result["priority"] = "normal"
         
+        # 4. Ensure summary exists
+        if "summary" not in result:
+            result["summary"] = ""
+        
+        # Ensure summary is a string
+        if not isinstance(result.get("summary"), str):
+            result["summary"] = str(result.get("summary", ""))
+        
         return result
 
     def _rule_based(self, subject: str, body: str) -> Dict:
@@ -287,5 +300,8 @@ Do not include explanations or markdown. Only output valid JSON."""
         if any(k in text_lower for k in ["meeting", "schedule", "calendar"]):
             labels.append("meetings")
 
-        return {"labels": labels, "priority": priority}
+        # Generate simple summary from subject
+        summary = subject[:100] if subject else "No subject"
+
+        return {"labels": labels, "priority": priority, "summary": summary}
 

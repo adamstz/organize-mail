@@ -40,10 +40,28 @@ class SQLiteStorage(StorageBackend):
                 payload TEXT,
                 raw TEXT,
                 headers TEXT,
-                fetched_at TEXT
+                fetched_at TEXT,
+                classification_labels TEXT,
+                priority TEXT,
+                summary TEXT
             )
             """
         )
+        
+        # Add classification columns to existing tables (migration)
+        try:
+            cur.execute("ALTER TABLE messages ADD COLUMN classification_labels TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cur.execute("ALTER TABLE messages ADD COLUMN priority TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cur.execute("ALTER TABLE messages ADD COLUMN summary TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS metadata (
@@ -82,8 +100,8 @@ class SQLiteStorage(StorageBackend):
         cur.execute(
             """
             INSERT OR REPLACE INTO messages
-            (id, thread_id, from_addr, to_addr, subject, snippet, labels, internal_date, payload, raw, headers, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, thread_id, from_addr, to_addr, subject, snippet, labels, internal_date, payload, raw, headers, fetched_at, classification_labels, priority, summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 msg.id,
@@ -98,6 +116,9 @@ class SQLiteStorage(StorageBackend):
                 msg.raw,
                 self._serialize(msg.headers) if msg.headers is not None else None,
                 datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                self._serialize(msg.classification_labels) if msg.classification_labels is not None else None,
+                msg.priority,
+                msg.summary,
             ),
         )
         conn.commit()
@@ -176,6 +197,9 @@ class SQLiteStorage(StorageBackend):
             labels = self._deserialize(r[6])
             payload = self._deserialize(r[8])
             headers = self._deserialize(r[10]) or {}
+            classification_labels = self._deserialize(r[12]) if len(r) > 12 else None
+            priority = r[13] if len(r) > 13 else None
+            summary = r[14] if len(r) > 14 else None
             out.append(
                 MailMessage(
                     id=r[0],
@@ -189,6 +213,9 @@ class SQLiteStorage(StorageBackend):
                     payload=payload,
                     raw=r[9],
                     headers=headers,
+                    classification_labels=classification_labels,
+                    priority=priority,
+                    summary=summary,
                 )
             )
         return out

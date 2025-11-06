@@ -18,13 +18,30 @@ class MailMessage:
     payload: Optional[Dict[str, Any]] = None
     raw: Optional[str] = None
     headers: Dict[str, str] = field(default_factory=dict)
+    
+    # Classification fields (populated by LLM processor)
+    classification_labels: Optional[List[str]] = None
+    priority: Optional[str] = None
+    summary: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        d = asdict(self)
-        # normalize names to more API-style keys
-        d["threadId"] = d.pop("thread_id")
-        d["from"] = d.pop("from_")
-        return d
+        """Convert to JSON-serializable dictionary for storage."""
+        return {
+            "id": self.id,
+            "thread_id": self.thread_id,
+            "from": self.from_,
+            "to": self.to,
+            "subject": self.subject,
+            "snippet": self.snippet,
+            "labels": self.labels,
+            "internal_date": self.internal_date,
+            "payload": self.payload,
+            "raw": self.raw,
+            "headers": self.headers,
+            "classification_labels": self.classification_labels,
+            "priority": self.priority,
+            "summary": self.summary,
+        }
 
     @classmethod
     def from_api_message(cls, msg: Dict[str, Any], include_payload: bool = False) -> "MailMessage":
