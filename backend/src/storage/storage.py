@@ -1,149 +1,75 @@
 """Pluggable storage shim that delegates to a chosen backend implementation.
 
-The module preserves the previous function names but forwards calls to the
-configured backend. The default backend is SQLite (sqlite_storage.SQLiteStorage).
-To swap backends at runtime call `set_storage_backend()` with an object that
-implements the StorageBackend interface (see storage_interface.py).
+This module provides a unified interface for different storage backends:
+- SQLite: File-based storage (sqlite_storage.py)
+- PostgreSQL: Remote database storage (postgres_storage.py)
+- Memory: In-memory storage for testing (memory_storage.py)
+
+The STORAGE_BACKEND environment variable must be set to one of:
+'sqlite', 'postgres', or 'memory'. No default is provided to ensure
+explicit configuration.
+
+To swap backends at runtime, call `set_storage_backend()` with an object
+that implements the StorageBackend interface (see storage_interface.py).
 """
 from __future__ import annotations
 
 from typing import List, Optional
+import os
 
 from ..models.message import MailMessage
 from .storage_interface import StorageBackend
-from .sqlite_storage import SQLiteStorage
-from .sqlite_storage import default_db_path
-import os
-
-
-# in-memory backend for testing
-class InMemoryStorage(StorageBackend):
-    def __init__(self):
-        self._messages: dict[str, MailMessage] = {}
-        self._meta: dict[str, str] = {}
-        # store classification records in memory for tests/dev
-        self._classifications: dict[str, list[dict]] = {}
-        self._latest_classification: dict[str, str] = {}  # message_id -> classification_id
-
-    def init_db(self) -> None:
-        self._messages.clear()
-        self._meta.clear()
-        self._classifications.clear()
-        self._latest_classification.clear()
-
-    def save_message(self, msg: MailMessage) -> None:
-        self._messages[msg.id] = msg
-
-    def save_classification_record(self, record) -> None:
-        lst = self._classifications.setdefault(record.message_id, [])
-        lst.append(record.to_dict())
-    
-    def create_classification(self, message_id: str, labels: List[str], priority: str, summary: str, model: str = None) -> str:
-        """Create a new classification record and link it to the message."""
-        import uuid
-        from datetime import datetime, timezone
-        
-        classification_id = str(uuid.uuid4())
-        classification = {
-            "id": classification_id,
-            "message_id": message_id,
-            "labels": labels,
-            "priority": priority,
-            "summary": summary,
-            "model": model,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        
-        # Store classification
-        lst = self._classifications.setdefault(message_id, [])
-        lst.append(classification)
-        
-        # Update message's latest classification reference
-        self._latest_classification[message_id] = classification_id
-        
-        # Also update the message object if it exists
-        if message_id in self._messages:
-            msg = self._messages[message_id]
-            msg.classification_labels = labels
-            msg.priority = priority
-            msg.summary = summary
-        
-        return classification_id
-    
-    def get_latest_classification(self, message_id: str) -> Optional[dict]:
-        """Get the most recent classification for a message."""
-        classification_id = self._latest_classification.get(message_id)
-        if not classification_id:
-            return None
-        
-        # Find the classification in the list
-        for classification in self._classifications.get(message_id, []):
-            if classification["id"] == classification_id:
-                return classification
-        
-        return None
-
-    def get_message_ids(self) -> List[str]:
-        return list(self._messages.keys())
-    
-    def get_message_by_id(self, message_id: str) -> Optional[MailMessage]:
-        """Get a single message by ID."""
-        return self._messages.get(message_id)
-    
-    def get_unclassified_message_ids(self) -> List[str]:
-        """Get IDs of messages that haven't been classified yet."""
-        return [
-            msg_id for msg_id in self._messages.keys()
-            if msg_id not in self._latest_classification
-        ]
-    
-    def count_classified_messages(self) -> int:
-        """Count how many messages have been classified."""
-        return len(self._latest_classification)
-
-    def list_messages(self, limit: int = 100, offset: int = 0) -> List[MailMessage]:
-        return list(self._messages.values())[offset:offset+limit]
-
-    def get_history_id(self) -> Optional[str]:
-        return self._meta.get("historyId")
-
-    def set_history_id(self, history_id: str) -> None:
-        self._meta["historyId"] = history_id
-
-    def list_classification_records_for_message(self, message_id: str):
-        data = self._classifications.get(message_id, [])
-        from ..models.classification_record import ClassificationRecord
-        out = []
-        for d in data:
-            out.append(ClassificationRecord.from_dict(d))
-        return out
+from .sqlite_storage import SQLiteStorage, default_db_path
 
 def storage_factory_from_env() -> StorageBackend:
     """Create a storage backend instance based on STORAGE_BACKEND env var.
 
     Supported values:
-      - sqlite (default)
-      - postgres (requires DATABASE_URL or POSTGRES_* env vars)
-      - memory
+      - sqlite (requires explicit setting)
+      - postgres (requires DATABASE_URL or DB_* env vars)
+      - memory (requires explicit setting)
+    
+    STORAGE_BACKEND must be explicitly set - no default is provided.
+    
+    For postgres, you can either set DATABASE_URL directly, or use these individual vars:
+      - DB_USER (or POSTGRES_USER for backwards compatibility)
+      - DB_PASSWORD (or POSTGRES_PASSWORD)
+      - DB_HOST (or POSTGRES_HOST) - the host/proxy to connect to (e.g., localhost for cloudflared)
+      - DB_PORT (or POSTGRES_PORT) - the port to connect to (e.g., 5433 for cloudflared proxy)
+      - DB_NAME (or POSTGRES_DB) - the database name
     """
-    mode = os.environ.get("STORAGE_BACKEND", "sqlite").lower()
+    mode = os.environ.get("STORAGE_BACKEND")
+    if not mode:
+        raise ValueError(
+            "STORAGE_BACKEND environment variable is required. "
+            "Set to 'sqlite', 'postgres', or 'memory'"
+        )
+    
+    mode = mode.lower()
     if mode == "memory" or mode == "inmemory":
+        from .memory_storage import InMemoryStorage
         return InMemoryStorage()
     elif mode == "postgres" or mode == "postgresql":
         from .postgres_storage import PostgresStorage
         db_url = os.environ.get("DATABASE_URL")
         if not db_url:
             # Build from individual components if DATABASE_URL not set
-            user = os.environ.get("POSTGRES_USER", "postgres")
-            password = os.environ.get("POSTGRES_PASSWORD", "")
-            host = os.environ.get("POSTGRES_HOST", "localhost")
-            port = os.environ.get("POSTGRES_PORT", "5432")
-            database = os.environ.get("POSTGRES_DB", "mail_db")
+            # Note: These refer to the connection endpoint (which may be a local proxy like cloudflared)
+            user = os.environ.get("DB_USER") or os.environ.get("POSTGRES_USER", "postgres")
+            password = os.environ.get("DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD", "")
+            host = os.environ.get("DB_HOST") or os.environ.get("POSTGRES_HOST", "localhost")
+            port = os.environ.get("DB_PORT") or os.environ.get("POSTGRES_PORT", "5433")
+            database = os.environ.get("DB_NAME") or os.environ.get("POSTGRES_DB", "mail_db")
             db_url = f"postgresql://{user}:{password}@{host}:{port}/{database}"
         return PostgresStorage(db_url=db_url)
-    # default: sqlite
-    db_path = os.environ.get("STORAGE_DB_PATH") or default_db_path()
-    return SQLiteStorage(db_path=db_path)
+    elif mode == "sqlite":
+        db_path = os.environ.get("STORAGE_DB_PATH") or default_db_path()
+        return SQLiteStorage(db_path=db_path)
+    else:
+        raise ValueError(
+            f"Unknown STORAGE_BACKEND: {mode}. "
+            "Supported values: 'sqlite', 'postgres', 'memory'"
+        )
 
 
 # default backend instance

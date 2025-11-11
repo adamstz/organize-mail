@@ -12,11 +12,17 @@ from .storage_interface import StorageBackend
 
 
 def get_db_url() -> str:
-    """Get PostgreSQL connection URL from environment variables."""
-    return os.environ.get(
-        "DATABASE_URL",
-        "postgresql://devuser@localhost:5433/mail_db"
-    )
+    """Get PostgreSQL connection URL from environment variables.
+    
+    Raises ValueError if DATABASE_URL is not set.
+    """
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise ValueError(
+            "DATABASE_URL environment variable is required for PostgreSQL storage. "
+            "Set it to a connection string like: postgresql://user:password@host:port/database"
+        )
+    return db_url
 
 
 class PostgresStorage(StorageBackend):
