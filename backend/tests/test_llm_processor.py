@@ -108,6 +108,8 @@ class TestPromptBuilding:
 
     def test_prompt_includes_subject_and_body(self):
         """Prompt should contain email subject and body."""
+        import os
+        os.environ["LLM_PROVIDER"] = "rules"
         processor = LLMProcessor()
         prompt = processor._build_classification_prompt(
             "Invoice Payment Due",

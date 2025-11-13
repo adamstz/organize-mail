@@ -72,8 +72,8 @@ def storage_factory_from_env() -> StorageBackend:
         )
 
 
-# default backend instance
-_backend: StorageBackend = storage_factory_from_env()
+# default backend instance (lazy-initialized on first use)
+_backend: Optional[StorageBackend] = None
 
 
 def set_storage_backend(backend: StorageBackend) -> None:
@@ -82,38 +82,42 @@ def set_storage_backend(backend: StorageBackend) -> None:
 
 
 def get_storage_backend() -> StorageBackend:
+    """Get the global storage backend, initializing from env if needed."""
+    global _backend
+    if _backend is None:
+        _backend = storage_factory_from_env()
     return _backend
 
 
 def init_db() -> None:
-    _backend.init_db()
+    get_storage_backend().init_db()
 
 
 def save_message(msg: MailMessage) -> None:
-    _backend.save_message(msg)
+    get_storage_backend().save_message(msg)
 
 
 def get_message_ids() -> List[str]:
-    return _backend.get_message_ids()
+    return get_storage_backend().get_message_ids()
 
 
 def get_message_by_id(message_id: str) -> Optional[MailMessage]:
     """Get a single message by ID."""
-    return _backend.get_message_by_id(message_id)
+    return get_storage_backend().get_message_by_id(message_id)
 
 
 def get_unclassified_message_ids() -> List[str]:
     """Get IDs of messages that haven't been classified yet."""
-    return _backend.get_unclassified_message_ids()
+    return get_storage_backend().get_unclassified_message_ids()
 
 
 def count_classified_messages() -> int:
     """Count how many messages have been classified."""
-    return _backend.count_classified_messages()
+    return get_storage_backend().count_classified_messages()
 
 
 def list_messages(limit: int = 100, offset: int = 0) -> List[MailMessage]:
-    return _backend.list_messages(limit=limit, offset=offset)
+    return get_storage_backend().list_messages(limit=limit, offset=offset)
 
 
 def create_classification(message_id: str, labels: List[str], priority: str, summary: str, model: str = None) -> str:
@@ -121,7 +125,7 @@ def create_classification(message_id: str, labels: List[str], priority: str, sum
     
     Returns the classification ID.
     """
-    return _backend.create_classification(message_id, labels, priority, summary, model)
+    return get_storage_backend().create_classification(message_id, labels, priority, summary, model)
 
 
 def get_latest_classification(message_id: str) -> Optional[dict]:
@@ -129,15 +133,15 @@ def get_latest_classification(message_id: str) -> Optional[dict]:
     
     Returns dict with: id, labels, priority, summary, model, created_at
     """
-    return _backend.get_latest_classification(message_id)
+    return get_storage_backend().get_latest_classification(message_id)
 
 
 def save_classification_record(record) -> None:
-    _backend.save_classification_record(record)
+    get_storage_backend().save_classification_record(record)
 
 
 def list_classification_records_for_message(message_id: str):
-    return _backend.list_classification_records_for_message(message_id)
+    return get_storage_backend().list_classification_records_for_message(message_id)
 
 
 def list_messages_dicts(limit: int = 100, offset: int = 0) -> List[dict]:
@@ -145,7 +149,7 @@ def list_messages_dicts(limit: int = 100, offset: int = 0) -> List[dict]:
 
     This acts like a small stored-procedure helper for the API layer.
     """
-    msgs = _backend.list_messages(limit=limit)
+    msgs = get_storage_backend().list_messages(limit=limit)
     dicts: List[dict] = []
     for m in msgs[offset:]:
         d = m.to_dict()
@@ -154,8 +158,8 @@ def list_messages_dicts(limit: int = 100, offset: int = 0) -> List[dict]:
 
 
 def get_history_id() -> Optional[str]:
-    return _backend.get_history_id()
+    return get_storage_backend().get_history_id()
 
 
 def set_history_id(history_id: str) -> None:
-    _backend.set_history_id(history_id)
+    get_storage_backend().set_history_id(history_id)

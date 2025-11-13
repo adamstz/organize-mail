@@ -38,8 +38,10 @@ def test_api_starts():
 
 def test_llm_processor_works():
     """Verify LLM processor can classify (using fallback)."""
+    import os
     from src.llm_processor import LLMProcessor
     
+    os.environ["LLM_PROVIDER"] = "rules"
     processor = LLMProcessor()
     result = processor.categorize_message(
         "Invoice Payment",

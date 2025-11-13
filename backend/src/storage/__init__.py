@@ -7,6 +7,7 @@ continue to work.
 """
 from .storage import *
 from .sqlite_storage import SQLiteStorage, default_db_path
+from .memory_storage import InMemoryStorage
 
 # PostgresStorage is imported lazily in storage_factory_from_env to avoid
 # requiring psycopg2 when using SQLite or InMemory backends

@@ -15,6 +15,43 @@ from src.models.message import MailMessage
 from src.models.classification_record import ClassificationRecord
 from src.storage.postgres_storage import PostgresStorage
 
+# Helper to check if Postgres is available
+def _is_postgres_available():
+    """Check if test database is available."""
+    try:
+        import psycopg2
+        db_url = _get_test_db_url()
+        conn = psycopg2.connect(db_url)
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def _get_test_db_url() -> str:
+    """Get test database URL using the same logic as production storage.
+    
+    Returns connection string built from TEST_DATABASE_URL or individual env vars.
+    """
+    db_url = os.environ.get("TEST_DATABASE_URL")
+    if not db_url:
+        # Build from individual components if TEST_DATABASE_URL not set
+        # Use TEST_* variants first, fall back to POSTGRES_* vars (but always default to test_mail_db)
+        user = os.environ.get("TEST_DB_USER") or os.environ.get("POSTGRES_USER", "postgres")
+        password = os.environ.get("TEST_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD", "")
+        host = os.environ.get("TEST_DB_HOST") or os.environ.get("POSTGRES_HOST", "localhost")
+        port = os.environ.get("TEST_DB_PORT") or os.environ.get("POSTGRES_PORT", "5433")
+        # Always use test_mail_db unless explicitly overridden with TEST_DB_NAME
+        database = os.environ.get("TEST_DB_NAME", "test_mail_db")
+        db_url = f"postgresql://{user}:{password}@{host}:{port}/{database}"
+    return db_url
+
+# Skip all tests in this module if Postgres is not available
+pytestmark = pytest.mark.skipif(
+    not _is_postgres_available(),
+    reason="PostgreSQL test database not available (set TEST_DATABASE_URL or start postgres on localhost:5433)"
+)
+
 
 # Fixtures for database connection
 @pytest.fixture
@@ -24,7 +61,7 @@ def db_url():
     Uses a separate test database to avoid affecting real data.
     Default: test_mail_db (not mail_db)
     """
-    return os.environ.get("TEST_DATABASE_URL", "postgresql://devuser@localhost:5433/test_mail_db")
+    return _get_test_db_url()
 
 
 @pytest.fixture
@@ -555,8 +592,8 @@ class TestPostgresStorageConnectionHandling:
 
 
 @pytest.mark.skipif(
-    not os.environ.get("TEST_DATABASE_URL"),
-    reason="TEST_DATABASE_URL not set, skipping integration tests"
+    not _is_postgres_available(),
+    reason="PostgreSQL test database not available"
 )
 class TestPostgresStorageIntegration:
     """Integration tests that require actual PostgreSQL connection."""
