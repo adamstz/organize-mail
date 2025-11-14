@@ -103,12 +103,8 @@ class LLMProcessor:
         if self.provider == "rules":
             return self._rule_based(subject, body)
         
-        try:
-            return self._categorize_with_llm(subject, body)
-        except Exception as e:
-            # Log the error and fall back to rules
-            print(f"LLM categorization failed ({self.provider}): {e}")
-            return self._rule_based(subject, body)
+        # For non-rules providers, don't fall back - let the error propagate
+        return self._categorize_with_llm(subject, body)
 
     def _categorize_with_llm(self, subject: str, body: str) -> Dict:
         """Common LLM categorization flow: build prompt → call provider → parse response."""

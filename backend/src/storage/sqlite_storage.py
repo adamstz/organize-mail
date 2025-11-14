@@ -161,14 +161,15 @@ class SQLiteStorage(StorageBackend):
         cur.execute(
             """
             INSERT OR REPLACE INTO classifications
-            (id, message_id, labels, priority, model, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (id, message_id, labels, priority, summary, model, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.id,
                 record.message_id,
                 self._serialize(record.labels) if record.labels is not None else None,
                 record.priority,
+                record.summary,
                 record.model,
                 record.created_at.isoformat() if record.created_at is not None else None,
             ),
@@ -189,7 +190,7 @@ class SQLiteStorage(StorageBackend):
 
         for r in rows:
             labels = self._deserialize(r[2]) or []
-            created_at = r[5]
+            created_at = r[6]
             created_dt = None
             if created_at:
                 try:
@@ -202,7 +203,8 @@ class SQLiteStorage(StorageBackend):
                     message_id=r[1],
                     labels=labels,
                     priority=r[3],
-                    model=r[4],
+                    summary=r[4],
+                    model=r[5],
                     created_at=created_dt,
                 )
             )

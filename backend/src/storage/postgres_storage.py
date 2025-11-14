@@ -189,12 +189,13 @@ class PostgresStorage(StorageBackend):
         cur.execute(
             """
             INSERT INTO classifications
-            (id, message_id, labels, priority, model, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            (id, message_id, labels, priority, summary, model, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO UPDATE SET
                 message_id = EXCLUDED.message_id,
                 labels = EXCLUDED.labels,
                 priority = EXCLUDED.priority,
+                summary = EXCLUDED.summary,
                 model = EXCLUDED.model,
                 created_at = EXCLUDED.created_at
             """,
@@ -203,6 +204,7 @@ class PostgresStorage(StorageBackend):
                 record.message_id,
                 Json(record.labels) if record.labels is not None else None,
                 record.priority,
+                record.summary,
                 record.model,
                 record.created_at if record.created_at is not None else None,
             ),
@@ -239,6 +241,7 @@ class PostgresStorage(StorageBackend):
                     message_id=r['message_id'],
                     labels=labels,
                     priority=r['priority'],
+                    summary=r['summary'],
                     model=r['model'],
                     created_at=created_at,
                 )

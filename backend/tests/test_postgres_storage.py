@@ -363,8 +363,8 @@ class TestPostgresStorageClassifications:
         records = storage.list_classification_records_for_message("msg-class-004")
         assert len(records) == 3
         # Should be ordered by created_at DESC, so most recent first
-        # ClassificationRecord doesn't have summary field
         assert records[0].priority == "high"
+        assert records[0].summary == "Third"
     
     def test_save_classification_record(self, storage):
         """Test saving a ClassificationRecord object."""
@@ -376,6 +376,7 @@ class TestPostgresStorageClassifications:
             message_id="msg-class-005",
             labels=["important", "follow-up"],
             priority="high",
+            summary="Important follow-up required",
             model="claude-3",
             created_at=datetime.now(timezone.utc)
         )
@@ -387,6 +388,7 @@ class TestPostgresStorageClassifications:
         assert records[0].id == "class-record-001"
         assert records[0].labels == ["important", "follow-up"]
         assert records[0].priority == "high"
+        assert records[0].summary == "Important follow-up required"
     
     def test_get_unclassified_message_ids(self, storage):
         """Test getting IDs of unclassified messages."""

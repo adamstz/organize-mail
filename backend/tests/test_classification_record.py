@@ -10,6 +10,7 @@ def test_to_dict_and_from_dict_roundtrip():
         message_id="msg-1",
         labels=["inbox", "todo"],
         priority="high",
+        summary="Test summary",
         model="classifier-v1",
         created_at=now,
     )
@@ -18,12 +19,14 @@ def test_to_dict_and_from_dict_roundtrip():
     assert d["id"] == "record-1"
     assert d["message_id"] == "msg-1"
     assert d["labels"] == ["inbox", "todo"]
+    assert d["summary"] == "Test summary"
     assert d["created_at"] == now.isoformat()
 
     restored = ClassificationRecord.from_dict(d)
     assert restored.id == record.id
     assert restored.message_id == record.message_id
     assert restored.labels == record.labels
+    assert restored.summary == record.summary
     assert restored.created_at == now
 
 

@@ -105,10 +105,14 @@ test-func:
 
 # Classify all unclassified messages
 classify:
+	@test -n "$(LLM_PROVIDER)" || (echo "ERROR: LLM_PROVIDER not set. Set it, e.g. export LLM_PROVIDER=ollama" && exit 1)
+	@test -n "$(LLM_MODEL)" || (echo "ERROR: LLM_MODEL not set. Set it, e.g. export LLM_MODEL=gemma:2b" && exit 1)
 	$(PYTHON) -m src.jobs.classify_all
 
 # Re-classify all messages (force mode)
 classify-force:
+	@test -n "$(LLM_PROVIDER)" || (echo "ERROR: LLM_PROVIDER not set. Set it, e.g. export LLM_PROVIDER=ollama" && exit 1)
+	@test -n "$(LLM_MODEL)" || (echo "ERROR: LLM_MODEL not set. Set it, e.g. export LLM_MODEL=gemma:2b" && exit 1)
 	$(PYTHON) -m src.jobs.classify_all --force
 
 # Pull all messages from Gmail INBOX

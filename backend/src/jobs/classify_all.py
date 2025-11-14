@@ -136,8 +136,9 @@ def classify_all_messages(force: bool = False, limit: int = None) -> None:
             body = msg.snippet or ""
             
             # Try to decode full email body from payload
-            if getattr(msg, "payload", None):
-                parts = msg.payload.get("parts", [])
+            payload = getattr(msg, "payload", None)
+            if payload and isinstance(payload, dict):
+                parts = payload.get("parts", [])
                 for part in parts:
                     if part.get("mimeType") == "text/plain":
                         body_data = part.get("body", {}).get("data", "")
@@ -154,6 +155,7 @@ def classify_all_messages(force: bool = False, limit: int = None) -> None:
                                 # If decoding fails, just use snippet
                                 pass
             
+            # Classify with LLM - will raise exception if it fails
             result = processor.categorize_message(msg.subject or "", body)
             
             # Create classification record (new approach - stores in separate table)
@@ -172,7 +174,9 @@ def classify_all_messages(force: bool = False, limit: int = None) -> None:
             
             # Show result
             labels_str = ", ".join(labels) if labels else "none"
+            summary_preview = summary[:60] + "..." if len(summary) > 60 else summary
             print(f"  ✓ {priority} priority | labels: {labels_str}")
+            print(f"  📝 {summary_preview}")
             
             msg_time = time.time() - msg_start
             print(f"  ⏱️  {msg_time:.2f}s")

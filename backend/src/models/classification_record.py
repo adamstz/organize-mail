@@ -19,6 +19,7 @@ class ClassificationRecord:
     message_id: str
     labels: List[str] = field(default_factory=list)
     priority: Optional[str] = None
+    summary: Optional[str] = None
     model: Optional[str] = None
     created_at: Optional[datetime] = None
 
@@ -61,6 +62,7 @@ class ClassificationRecord:
             message_id=data["message_id"],
             labels=list(labels),
             priority=data.get("priority"),
+            summary=data.get("summary"),
             model=data.get("model"),
             created_at=created_dt,
         )
