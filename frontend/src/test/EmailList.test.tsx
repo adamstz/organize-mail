@@ -38,17 +38,17 @@ describe('EmailList Component', () => {
   });
 
   // Visual assertion: each priority label renders as an MUI Chip with the
-  // expected color class (High -> error, Medium -> warning, Low -> success).
+  // expected color class (High -> error, Normal -> warning, Low -> success).
   it('displays priority chips with correct colors', async () => {
     render(<EmailList />);
     const highPriority = await screen.findByText('High');
-    const mediumPriority = await screen.findByText('Medium');
+    const normalPriority = await screen.findByText('Normal');
     const lowPriority = await screen.findByText('Low');
 
     // The text node returned by getByText is the inner span of the MUI Chip.
     // Assert against the Chip wrapper (closest element with the MuiChip-root class)
     expect(highPriority.closest('.MuiChip-root')).toHaveClass('MuiChip-colorError');
-    expect(mediumPriority.closest('.MuiChip-root')).toHaveClass('MuiChip-colorWarning');
+    expect(normalPriority.closest('.MuiChip-root')).toHaveClass('MuiChip-colorWarning');
     expect(lowPriority.closest('.MuiChip-root')).toHaveClass('MuiChip-colorSuccess');
   });
 });

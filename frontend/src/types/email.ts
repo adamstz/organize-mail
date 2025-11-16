@@ -1,8 +1,8 @@
 export interface Email {
-  id: number;
+  id: string;
   subject: string;
   date: string;
-  priority: 'High' | 'Medium' | 'Low' | 'Unclassified';
+  priority: 'High' | 'Normal' | 'Low' | 'Unclassified';
   summary: string;
   body: string;
   classificationLabels?: string[];

@@ -57,8 +57,25 @@ export const sanitizeText = (input: string): string => {
   }
 };
 
+// Define types for Gmail API payload structure
+interface GmailPayloadBody {
+  data?: string;
+}
+
+interface GmailPayloadPart {
+  mimeType?: string;
+  body?: GmailPayloadBody;
+  parts?: GmailPayloadPart[];
+}
+
+interface GmailPayload {
+  body?: GmailPayloadBody;
+  parts?: GmailPayloadPart[];
+  mimeType?: string;
+}
+
 // Extract readable body from payload
-export const extractBody = (payloadObj: any): string => {
+export const extractBody = (payloadObj: GmailPayload | null | undefined): string => {
   if (!payloadObj || typeof payloadObj !== 'object') {
     return '';
   }
@@ -77,13 +94,13 @@ export const extractBody = (payloadObj: any): string => {
   // Check for parts (multipart messages)
   if (payloadObj.parts && Array.isArray(payloadObj.parts)) {
     // Prefer text/plain over text/html
-    const textPart = payloadObj.parts.find((p: any) => p.mimeType === 'text/plain');
+    const textPart = payloadObj.parts.find((p: GmailPayloadPart) => p.mimeType === 'text/plain');
     if (textPart) {
       return extractBody(textPart);
     }
     
     // Fall back to text/html
-    const htmlPart = payloadObj.parts.find((p: any) => p.mimeType === 'text/html');
+    const htmlPart = payloadObj.parts.find((p: GmailPayloadPart) => p.mimeType === 'text/html');
     if (htmlPart) {
       const html = extractBody(htmlPart);
       // Strip HTML tags for display
@@ -232,18 +249,16 @@ export const parseBackendMessage = (m: Record<string, unknown>, idx: number): Em
     const hasPriority = Boolean(priority && typeof priority === 'string' && priority.trim().length > 0 && priority.toLowerCase() !== 'null');
     const hasSummary = Boolean(summary && typeof summary === 'string' && summary.trim().length > 0 && summary.toLowerCase() !== 'null');
     const isClassified: boolean = hasClassificationLabels || hasPriority || hasSummary;
-    
-    let displayPriority: Email['priority'] = isClassified ? 'Medium' : 'Unclassified';
-    
+
+    let displayPriority: Email['priority'] = isClassified ? 'Normal' : 'Unclassified';
+
     if (priority && typeof priority === 'string') {
       const p = priority.toLowerCase();
       if (p === 'high') displayPriority = 'High';
-      else if (p === 'medium' || p === 'normal') displayPriority = 'Medium';
+      else if (p === 'medium' || p === 'normal') displayPriority = 'Normal';
       else if (p === 'low') displayPriority = 'Low';
-    }
-
-    return {
-      id: idx + 1,
+    }    return {
+      id: String(m.id),
       subject: sanitizeText(String(rawSubject)),
       date: displayDate,
       priority: displayPriority,

@@ -2,7 +2,7 @@ import { Email } from '../types/email';
 
 export const exampleEmails: Email[] = [
   {
-    id: 1,
+    id: '1',
     subject: 'Project Update Meeting',
     date: '2025-10-14',
     priority: 'High',
@@ -12,17 +12,17 @@ export const exampleEmails: Email[] = [
     isClassified: true,
   },
   {
-    id: 2,
+    id: '2',
     subject: 'New Feature Release',
     date: '2025-10-13',
-    priority: 'Medium',
+    priority: 'Normal',
     summary: 'Announcing the release of our new dashboard features',
     body: "Hello everyone,\n\nWe're excited to announce the release of our new dashboard features. This includes improved analytics, customizable widgets, and better performance optimizations.\n\nRegards,\nProduct Team",
     classificationLabels: ['Product', 'Announcement'],
     isClassified: true,
   },
   {
-    id: 3,
+    id: '3',
     subject: 'Team Lunch Next Week',
     date: '2025-10-12',
     priority: 'Low',

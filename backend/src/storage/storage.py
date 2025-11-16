@@ -140,6 +140,11 @@ def save_classification_record(record) -> None:
     get_storage_backend().save_classification_record(record)
 
 
+def update_message_latest_classification(message_id: str, classification_id: str) -> None:
+    """Update the latest_classification_id for a message."""
+    get_storage_backend().update_message_latest_classification(message_id, classification_id)
+
+
 def list_classification_records_for_message(message_id: str):
     return get_storage_backend().list_classification_records_for_message(message_id)
 
@@ -149,9 +154,9 @@ def list_messages_dicts(limit: int = 100, offset: int = 0) -> List[dict]:
 
     This acts like a small stored-procedure helper for the API layer.
     """
-    msgs = get_storage_backend().list_messages(limit=limit)
+    msgs = get_storage_backend().list_messages(limit=limit, offset=offset)
     dicts: List[dict] = []
-    for m in msgs[offset:]:
+    for m in msgs:
         d = m.to_dict()
         dicts.append(d)
     return dicts

@@ -46,6 +46,10 @@ class StorageBackend:
         `record` is expected to be an object with a `to_dict()` method.
         """
         raise NotImplementedError()
+    
+    def update_message_latest_classification(self, message_id: str, classification_id: str) -> None:
+        """Update the latest_classification_id for a message."""
+        raise NotImplementedError()
 
     def create_classification(self, message_id: str, labels: List[str], priority: str, summary: str, model: str = None) -> str:
         """Create a new classification and link it to a message.

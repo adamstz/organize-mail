@@ -36,6 +36,21 @@ class InMemoryStorage(StorageBackend):
         lst = self._classifications.setdefault(record.message_id, [])
         lst.append(record.to_dict())
     
+    def update_message_latest_classification(self, message_id: str, classification_id: str) -> None:
+        """Update the latest_classification_id for a message."""
+        self._latest_classification[message_id] = classification_id
+        
+        # Also update the message object if it exists
+        if message_id in self._messages:
+            # Find the classification
+            for classification in self._classifications.get(message_id, []):
+                if classification["id"] == classification_id:
+                    msg = self._messages[message_id]
+                    msg.classification_labels = classification.get("labels")
+                    msg.priority = classification.get("priority")
+                    msg.summary = classification.get("summary")
+                    break
+    
     def create_classification(self, message_id: str, labels: List[str], priority: str, summary: str, model: str = None) -> str:
         """Create a new classification record and link it to the message."""
         classification_id = str(uuid.uuid4())
@@ -82,8 +97,37 @@ class InMemoryStorage(StorageBackend):
         return list(self._messages.keys())
     
     def get_message_by_id(self, message_id: str) -> Optional[MailMessage]:
-        """Get a single message by ID."""
-        return self._messages.get(message_id)
+        """Get a single message by ID with its latest classification."""
+        msg = self._messages.get(message_id)
+        if not msg:
+            return None
+        
+        # Get latest classification if exists
+        classification_id = self._latest_classification.get(message_id)
+        if classification_id:
+            for classification in self._classifications.get(message_id, []):
+                if classification["id"] == classification_id:
+                    # Create a copy with classification data
+                    msg_copy = MailMessage(
+                        id=msg.id,
+                        thread_id=msg.thread_id,
+                        from_=msg.from_,
+                        to=msg.to,
+                        subject=msg.subject,
+                        snippet=msg.snippet,
+                        labels=msg.labels,
+                        internal_date=msg.internal_date,
+                        payload=msg.payload,
+                        raw=msg.raw,
+                        headers=msg.headers,
+                        classification_labels=classification.get("labels"),
+                        priority=classification.get("priority"),
+                        summary=classification.get("summary"),
+                        has_attachments=msg.has_attachments
+                    )
+                    return msg_copy
+        
+        return msg
     
     def get_unclassified_message_ids(self) -> List[str]:
         """Get IDs of messages that haven't been classified yet."""

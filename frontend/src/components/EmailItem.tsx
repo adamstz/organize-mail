@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ListItem,
   ListItemText,
@@ -7,11 +7,13 @@ import {
   Typography,
   Box,
   Chip,
+  CircularProgress,
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { Email } from '../types/email';
 
@@ -19,7 +21,7 @@ const getPriorityColor = (priority: Email['priority']): 'error' | 'warning' | 's
   switch (priority.toLowerCase()) {
     case 'high':
       return 'error';
-    case 'medium':
+    case 'normal':
       return 'warning';
     case 'low':
       return 'success';
@@ -33,11 +35,40 @@ const getPriorityColor = (priority: Email['priority']): 'error' | 'warning' | 's
 interface EmailItemProps {
   email: Email;
   isExpanded: boolean;
-  onExpand: (id: number) => void;
-  onDelete: (id: number) => void;
+  onExpand: (id: string) => void;
+  onDelete: (id: string) => void;
+  onReclassify?: (id: string) => void;
+  selectedModel?: string;
 }
 
-const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDelete }) => {
+const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDelete, onReclassify, selectedModel = 'gemma:2b' }) => {
+  const [isReclassifying, setIsReclassifying] = useState(false);
+
+  const handleReclassify = async () => {
+    setIsReclassifying(true);
+    
+    try {
+      const response = await fetch(`http://localhost:8000/messages/${email.id}/reclassify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: selectedModel })
+      });
+      
+      if (response.ok) {
+        // Trigger parent refresh
+        if (onReclassify) {
+          onReclassify(email.id);
+        }
+      } else {
+        console.error('Reclassification failed:', await response.text());
+      }
+    } catch (error) {
+      console.error('Reclassification error:', error);
+    } finally {
+      setIsReclassifying(false);
+    }
+  };
+
   return (
     <React.Fragment>
       <ListItem
@@ -110,14 +141,31 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
             </Box>
           </Box>
         </Box>
-        <IconButton
-          edge="end"
-          aria-label="delete"
-          onClick={() => onDelete(email.id)}
-          sx={{ ml: 2 }}
-        >
-          <DeleteIcon />
-        </IconButton>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <IconButton
+            size="small"
+            aria-label="reclassify"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleReclassify();
+            }}
+            disabled={isReclassifying}
+            sx={{ color: 'primary.main' }}
+          >
+            {isReclassifying ? <CircularProgress size={20} /> : <RefreshIcon />}
+          </IconButton>
+          <IconButton
+            edge="end"
+            aria-label="delete"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(email.id);
+            }}
+            sx={{ ml: 1 }}
+          >
+            <DeleteIcon />
+          </IconButton>
+        </Box>
       </ListItem>
       <Collapse in={isExpanded} timeout="auto" unmountOnExit>
         <Box sx={{ p: 3, backgroundColor: 'grey.50' }}>

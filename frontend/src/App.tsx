@@ -21,6 +21,7 @@ const App: React.FC = () => {
   const [classificationStatus, setClassificationStatus] = useState<'all' | 'classified' | 'unclassified'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<'recent' | 'oldest'>('recent');
+  const [selectedModel, setSelectedModel] = useState<string>('gemma:2b');
 
   const handleStatusChange = (_event: React.MouseEvent<HTMLElement>, newStatus: 'all' | 'classified' | 'unclassified' | null) => {
     if (newStatus !== null) {
@@ -44,6 +45,15 @@ const App: React.FC = () => {
       setFilter({ type: null, value: null });
     } else {
       setFilter({ type: 'label', value: label });
+    }
+  };
+
+  const handlePriorityFilter = (priority: string) => {
+    // Toggle priority filter: if already selected, clear it; otherwise set it
+    if (filter.type === 'priority' && filter.value === priority) {
+      setFilter({ type: null, value: null });
+    } else {
+      setFilter({ type: 'priority', value: priority });
     }
   };
 
@@ -84,6 +94,9 @@ const App: React.FC = () => {
             filter={filter}
             onClearFilter={clearFilter}
             onLabelFilter={handleLabelFilter}
+            onPriorityFilter={handlePriorityFilter}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
           />
 
           <EmailList filter={filter} searchQuery={searchQuery} sortOrder={sortOrder} />

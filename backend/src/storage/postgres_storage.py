@@ -313,6 +313,24 @@ class PostgresStorage(StorageBackend):
         
         return classification_id
     
+    def update_message_latest_classification(self, message_id: str, classification_id: str) -> None:
+        """Update the latest_classification_id for a message."""
+        conn = self.connect()
+        cur = conn.cursor()
+        
+        cur.execute(
+            """
+            UPDATE messages
+            SET latest_classification_id = %s
+            WHERE id = %s
+            """,
+            (classification_id, message_id)
+        )
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+    
     def get_latest_classification(self, message_id: str) -> Optional[dict]:
         """Get the most recent classification for a message.
         

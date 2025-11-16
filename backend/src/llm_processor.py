@@ -233,25 +233,32 @@ Body: {body_truncated}
 
 Instructions:
 - You MUST ONLY choose labels from this exact list (do not create new labels):
-  finance, banking, investments, security, authentication, meetings, appointments, personal, work, career, jobs, shopping, social, entertainment, news, newsletters, promotions, marketing, spam, travel, health, education, legal, taxes, receipts, notifications, updates, alerts, support, bills, insurance
-- For job-related emails, use ONLY the label "jobs" (not job-application, job-applied, etc.)
-- Choose 1-3 most relevant labels
+  finance, banking, investments, security, authentication, meetings, appointments, personal, work, career, shopping, social, entertainment, news, newsletters, promotions, marketing, spam, travel, health, education, legal, taxes, receipts, notifications, updates, alerts, support, bills, insurance, job-application, job-interview, job-offer, job-rejection, job-ad, job-followup
+- For job-related emails, use specific job labels:
+  * job-application: confirmation that you applied for a job
+  * job-interview: interview invitations or scheduling
+  * job-offer: job offers received
+  * job-rejection: rejection notifications
+  * job-ad: job opportunity advertisements (LinkedIn, Indeed, etc.)
+  * job-followup: follow-up emails about applications
+- Choose 1-3 most relevant labels from the list above
 - Assign priority: "high" (urgent/important), "normal" (routine), or "low" (can wait)
 - Write a brief summary (1-2 sentences) of the email's main purpose
 - Return ONLY a JSON object in this exact format:
 
 {{"labels": ["category1", "category2"], "priority": "normal", "summary": "Brief description of the email"}}
 
-Do not include explanations or markdown. Only output valid JSON."""
+Do not include explanations or markdown. Only output valid JSON. Do not invent labels not in the list."""
 
     # Allowed label whitelist
     ALLOWED_LABELS = {
         "finance", "banking", "investments", "security", "authentication",
-        "meetings", "appointments", "personal", "work", "career", "jobs",
+        "meetings", "appointments", "personal", "work", "career",
         "shopping", "social", "entertainment", "news", "newsletters",
         "promotions", "marketing", "spam", "travel", "health", "education",
         "legal", "taxes", "receipts", "notifications", "updates", "alerts",
-        "support", "bills", "insurance"
+        "support", "bills", "insurance", "job-application", "job-interview",
+        "job-offer", "job-rejection", "job-ad", "job-followup"
     }
 
     def _parse_llm_response(self, content: str) -> Dict:
@@ -331,6 +338,19 @@ Do not include explanations or markdown. Only output valid JSON."""
             priority = "high"
         if any(k in text_lower for k in ["meeting", "schedule", "calendar"]):
             labels.append("meetings")
+        
+        # Job-related keywords
+        if any(k in text_lower for k in ["thank you for applying", "application received", "applied for"]):
+            labels.append("job-application")
+        if any(k in text_lower for k in ["interview", "schedule a call", "would like to meet"]):
+            labels.append("job-interview")
+        if any(k in text_lower for k in ["job offer", "offer letter", "pleased to offer"]):
+            labels.append("job-offer")
+            priority = "high"
+        if any(k in text_lower for k in ["unfortunately", "not moving forward", "position has been filled"]):
+            labels.append("job-rejection")
+        if any(k in text_lower for k in ["jobs match", "new job", "job alert", "apply now"]):
+            labels.append("job-ad")
 
         # Generate simple summary from subject
         summary = subject[:100] if subject else "No subject"

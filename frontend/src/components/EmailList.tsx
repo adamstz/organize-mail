@@ -16,10 +16,11 @@ interface EmailListProps {
   filter?: { type: 'priority' | 'label' | 'status' | null; value: string | null };
   searchQuery?: string;
   sortOrder?: 'recent' | 'oldest';
+  selectedModel?: string;
 }
 
-const EmailList: React.FC<EmailListProps> = ({ filter, searchQuery = '', sortOrder = 'recent' }) => {
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+const EmailList: React.FC<EmailListProps> = ({ filter, searchQuery = '', sortOrder = 'recent', selectedModel = 'gemma:2b' }) => {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [emails, setEmails] = useState<Email[]>(exampleEmails);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,12 +120,72 @@ const EmailList: React.FC<EmailListProps> = ({ filter, searchQuery = '', sortOrd
     setPage(1);
   }, [filter, searchQuery]);
 
-  const handleExpand = (id: number): void => {
+  const handleExpand = (id: string): void => {
     setExpandedId(expandedId === id ? null : id);
   };
 
-  const handleDelete = (id: number): void => {
+  const handleDelete = (id: string): void => {
     setEmails(emails.filter(email => email.id !== id));
+  };
+
+  const handleReclassify = async (id: string) => {
+    // Fetch the updated message and update it in the list
+    console.log('[RECLASSIFY] Fetching updated message:', id);
+    
+    // Log BEFORE state
+    const beforeEmail = emails.find(e => e.id === id);
+    console.log('[RECLASSIFY] BEFORE:', {
+      id: beforeEmail?.id,
+      priority: beforeEmail?.priority,
+      labels: beforeEmail?.classificationLabels,
+      summary: beforeEmail?.summary
+    });
+    
+    try {
+      const res = await fetch(`/messages/${id}`);
+      console.log('[RECLASSIFY] Fetch response status:', res.status);
+      if (res.ok) {
+        const messageData = await res.json();
+        console.log('[RECLASSIFY] Received message data:', {
+          id: messageData.id,
+          priority: messageData.priority,
+          labels: messageData.classification_labels,
+          summary: messageData.summary
+        });
+        const updatedEmail = parseBackendMessage(messageData, 0);
+        if (updatedEmail) {
+          console.log('[RECLASSIFY] Parsed email:', {
+            id: updatedEmail.id,
+            priority: updatedEmail.priority,
+            labels: updatedEmail.classificationLabels,
+            summary: updatedEmail.summary
+          });
+          setEmails(prevEmails => {
+            const updated = prevEmails.map(email => 
+              email.id === id ? updatedEmail : email
+            );
+            console.log('[RECLASSIFY] Updated emails array, found match:', updated.some(e => e.id === id));
+            
+            // Log AFTER state
+            const afterEmail = updated.find(e => e.id === id);
+            console.log('[RECLASSIFY] AFTER:', {
+              id: afterEmail?.id,
+              priority: afterEmail?.priority,
+              labels: afterEmail?.classificationLabels,
+              summary: afterEmail?.summary
+            });
+            
+            return updated;
+          });
+        } else {
+          console.error('[RECLASSIFY] Failed to parse message data');
+        }
+      } else {
+        console.error('[RECLASSIFY] Failed to fetch message:', res.status);
+      }
+    } catch (err) {
+      console.error('[RECLASSIFY] Error refreshing message:', err);
+    }
   };
 
   return (
@@ -183,6 +244,8 @@ const EmailList: React.FC<EmailListProps> = ({ filter, searchQuery = '', sortOrd
             isExpanded={expandedId === email.id}
             onExpand={handleExpand}
             onDelete={handleDelete}
+            onReclassify={handleReclassify}
+            selectedModel={selectedModel}
           />
         ))}
       </List>
