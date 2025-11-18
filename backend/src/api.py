@@ -30,7 +30,7 @@ async def get_messages(limit: int = 50, offset: int = 0) -> dict:
     Query params:
         - limit: max messages to return (default 50)
         - offset: skip this many results (default 0)
-    
+
     Returns:
         {
             "data": [...],
@@ -39,8 +39,15 @@ async def get_messages(limit: int = 50, offset: int = 0) -> dict:
             "offset": 0
         }
     """
+    import time
+    start_time = time.time()
+    print(f"[GET MESSAGES] Starting query - limit={limit}, offset={offset}")
+
     msgs = storage.list_messages_dicts(limit=limit, offset=offset)
     total = len(storage.get_message_ids())
+
+    query_time = time.time() - start_time
+    print(f"[GET MESSAGES] Query completed in {query_time:.3f}s - found {len(msgs)}/{total} messages")
     return {
         "data": msgs,
         "total": total,
@@ -65,7 +72,7 @@ async def get_message_classifications(message_id: str) -> List[dict]:
     msg = storage.get_message_by_id(message_id)
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
-    
+
     records = storage.list_classification_records_for_message(message_id)
     return [r.to_dict() for r in records]
 
@@ -77,11 +84,11 @@ async def get_latest_classification(message_id: str) -> Optional[dict]:
     msg = storage.get_message_by_id(message_id)
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
-    
+
     classification = storage.get_latest_classification(message_id)
     if not classification:
         raise HTTPException(status_code=404, detail="No classification found for this message")
-    
+
     return classification
 
 
@@ -92,12 +99,12 @@ async def get_stats() -> dict:
     unclassified_ids = storage.get_unclassified_message_ids()
     classified_count = storage.count_classified_messages()
     total_count = len(all_message_ids)
-    
+
     # Count by priority
     messages = storage.list_messages(limit=1000)
     priority_counts = {"High": 0, "Normal": 0, "Low": 0, "Unclassified": 0}
     label_counts = {}
-    
+
     for msg in messages:
         if msg.priority:
             priority_key = msg.priority.capitalize()
@@ -110,12 +117,12 @@ async def get_stats() -> dict:
                 priority_counts[priority_key] = 1
         else:
             priority_counts["Unclassified"] += 1
-        
+
         # Count labels
         if msg.classification_labels:
             for label in msg.classification_labels:
                 label_counts[label] = label_counts.get(label, 0) + 1
-    
+
     return {
         "total_messages": total_count,
         "classified_messages": classified_count,
@@ -128,19 +135,19 @@ async def get_stats() -> dict:
 @app.get("/labels")
 async def get_labels(min_count: int = 3) -> dict:
     """Get all unique classification labels with their counts.
-    
+
     Args:
         min_count: Minimum number of occurrences to include a label (default: 3)
     """
     # Use efficient database query instead of fetching all messages
     all_counts = storage.get_label_counts()
-    
+
     # Filter by minimum count to exclude rare/one-off labels
     filtered_counts = {label: count for label, count in all_counts.items() if count >= min_count}
-    
+
     # Sort by count descending
     sorted_labels = sorted(filtered_counts.items(), key=lambda x: x[1], reverse=True)
-    
+
     return {
         "labels": [{"name": label, "count": count} for label, count in sorted_labels]
     }
@@ -149,13 +156,20 @@ async def get_labels(min_count: int = 3) -> dict:
 @app.get("/messages/filter/priority/{priority}")
 async def filter_by_priority(priority: str, limit: int = 50, offset: int = 0) -> dict:
     """Get messages filtered by priority (high, medium, low, unclassified)."""
+    import time
+    start_time = time.time()
+    print(f"[FILTER PRIORITY] Starting query - priority={priority}, limit={limit}, offset={offset}")
+
     if priority.lower() == "unclassified":
         # Use database-level filtering for unclassified messages
         messages, total = storage.list_unclassified_messages(limit=limit, offset=offset)
     else:
         # Use database-level filtering with index on priority
         messages, total = storage.list_messages_by_priority(priority, limit=limit, offset=offset)
-    
+
+    query_time = time.time() - start_time
+    print(f"[FILTER PRIORITY] Query completed in {query_time:.3f}s - found {len(messages)}/{total} messages")
+
     return {
         "data": [m.to_dict() for m in messages],
         "total": total,
@@ -167,9 +181,16 @@ async def filter_by_priority(priority: str, limit: int = 50, offset: int = 0) ->
 @app.get("/messages/filter/label/{label}")
 async def filter_by_label(label: str, limit: int = 50, offset: int = 0) -> dict:
     """Get messages filtered by classification label."""
+    import time
+    start_time = time.time()
+    print(f"[FILTER LABEL] Starting query - label={label}, limit={limit}, offset={offset}")
+
     # Use database-level filtering with GIN index on classification_labels
     messages, total = storage.list_messages_by_label(label, limit=limit, offset=offset)
-    
+
+    query_time = time.time() - start_time
+    print(f"[FILTER LABEL] Query completed in {query_time:.3f}s - found {len(messages)}/{total} messages")
+
     return {
         "data": [m.to_dict() for m in messages],
         "total": total,
@@ -183,7 +204,7 @@ async def filter_classified(limit: int = 50, offset: int = 0) -> dict:
     """Get only classified messages."""
     # Use database-level filtering with index on latest_classification_id
     messages, total = storage.list_classified_messages(limit=limit, offset=offset)
-    
+
     return {
         "data": [m.to_dict() for m in messages],
         "total": total,
@@ -197,10 +218,145 @@ async def filter_unclassified(limit: int = 50, offset: int = 0) -> dict:
     """Get only unclassified messages."""
     # Use database-level filtering
     messages, total = storage.list_unclassified_messages(limit=limit, offset=offset)
-    
+
     return {
         "data": [m.to_dict() for m in messages],
         "total": total,
+        "limit": limit,
+        "offset": offset
+    }
+
+
+@app.get("/messages/filter/advanced")
+async def filter_advanced(
+    priority: Optional[str] = None,
+    labels: Optional[str] = None,  # Comma-separated list of labels
+    status: Optional[str] = None,  # 'classified', 'unclassified', or 'all'
+    limit: int = 50,
+    offset: int = 0
+) -> dict:
+    """Advanced filtering with multiple criteria (priority, labels, status).
+
+    Query params:
+        - priority: 'high', 'normal', or 'low'
+        - labels: comma-separated labels (e.g., 'work,urgent')
+        - status: 'classified', 'unclassified', or 'all'
+        - limit: max results (default 50)
+        - offset: pagination offset (default 0)
+    """
+    import time
+    start_time = time.time()
+
+    print(
+        f"[ADVANCED FILTER] Starting query - priority={priority}, "
+        f"labels={labels}, status={status}, limit={limit}, offset={offset}"
+    )
+
+    # Parse labels
+    label_list = None
+    if labels:
+        label_list = [label.strip() for label in labels.split(',') if label.strip()]
+
+    # Determine classified filter
+    classified = None
+    if status == 'classified':
+        classified = True
+    elif status == 'unclassified':
+        classified = False
+
+    # Use optimized database-level filtering
+    fetch_start = time.time()
+
+    # Check if storage backend supports the optimized method
+    if hasattr(storage, 'list_messages_by_filters'):
+        messages, total = storage.list_messages_by_filters(
+            priority=priority,
+            labels=label_list,
+            classified=classified,
+            limit=limit,
+            offset=offset
+        )
+        fetch_time = time.time() - fetch_start
+        print(
+            f"[ADVANCED FILTER] Database query completed in {fetch_time:.3f}s - "
+            f"found {len(messages)}/{total} messages"
+        )
+
+        # Serialize to dict
+        serialize_start = time.time()
+        result_data = [m.to_dict() for m in messages]
+        serialize_time = time.time() - serialize_start
+        print(f"[ADVANCED FILTER] Serialization took {serialize_time:.3f}s")
+
+        total_time = time.time() - start_time
+        print(
+            f"[ADVANCED FILTER] Total request time: {total_time:.3f}s "
+            f"(db_query={fetch_time:.3f}s, serialize={serialize_time:.3f}s)"
+        )
+
+        return {
+            "data": result_data,
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }
+
+    # Fallback to Python filtering for storage backends that don't support combined filters
+    print(
+        "[ADVANCED FILTER] Using fallback Python filtering "
+        "(storage backend doesn't support list_messages_by_filters)"
+    )
+    fetch_limit = 2000
+
+    if status == 'unclassified':
+        messages, _ = storage.list_unclassified_messages(limit=fetch_limit, offset=0)
+    else:
+        messages, _ = storage.list_classified_messages(limit=fetch_limit, offset=0)
+    fetch_time = time.time() - fetch_start
+    print(f"[ADVANCED FILTER] Fetched {len(messages)} messages in {fetch_time:.3f}s")
+
+    # Apply filters in Python
+    filter_start = time.time()
+    filtered = messages
+
+    # Filter by priority
+    if priority:
+        filtered = [m for m in filtered if m.priority and m.priority.lower() == priority.lower()]
+        print(f"[ADVANCED FILTER] After priority filter: {len(filtered)} messages")
+
+    # Filter by labels (must have ALL specified labels)
+    if label_list:
+        filtered = [
+            m for m in filtered
+            if m.classification_labels and all(
+                any(el.lower() == sl.lower() for el in m.classification_labels)
+                for sl in label_list
+            )
+        ]
+        print(f"[ADVANCED FILTER] After labels filter ({label_list}): {len(filtered)} messages")
+
+    filter_time = time.time() - filter_start
+    print(f"[ADVANCED FILTER] Filtering took {filter_time:.3f}s")
+
+    # Apply pagination
+    total_filtered = len(filtered)
+    paginated = filtered[offset:offset + limit]
+
+    # Serialize to dict
+    serialize_start = time.time()
+    result_data = [m.to_dict() for m in paginated]
+    serialize_time = time.time() - serialize_start
+    print(f"[ADVANCED FILTER] Serialization took {serialize_time:.3f}s")
+
+    total_time = time.time() - start_time
+    print(
+        f"[ADVANCED FILTER] Total request time: {total_time:.3f}s "
+        f"(fetch={fetch_time:.3f}s, filter={filter_time:.3f}s, serialize={serialize_time:.3f}s)"
+    )
+
+    return {
+        "data": result_data,
+        "total": total_filtered,
         "limit": limit,
         "offset": offset
     }
@@ -212,9 +368,9 @@ async def list_models() -> dict:
     import os
     import urllib.request
     import json
-    
+
     ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-    
+
     try:
         req = urllib.request.Request(f"{ollama_host}/api/tags", method="GET")
         with urllib.request.urlopen(req, timeout=5) as response:
@@ -234,23 +390,23 @@ async def reclassify_message(message_id: str, request: ReclassifyRequest) -> dic
     """Reclassify a message using the specified model."""
     import os
     import logging
-    
+
     logger = logging.getLogger("uvicorn")
     logger.info(f"[RECLASSIFY] Starting reclassification for message_id={message_id} with model={request.model}")
-    
+
     # Get the message
     msg = storage.get_message_by_id(message_id)
     if not msg:
         logger.error(f"[RECLASSIFY] Message not found: {message_id}")
         raise HTTPException(status_code=404, detail="Message not found")
-    
+
     logger.info(f"[RECLASSIFY] Found message: subject='{msg.subject[:50]}...'")
-    
+
     # Set model if provided
     if request.model:
         os.environ["LLM_MODEL"] = request.model
         logger.info(f"[RECLASSIFY] Using model: {request.model}")
-    
+
     # Classify using LLM
     processor = LLMProcessor()
     subject = msg.subject or ""
@@ -269,7 +425,7 @@ async def reclassify_message(message_id: str, request: ReclassifyRequest) -> dic
                             body = base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore')
                             logger.info(f"[RECLASSIFY] Extracted body from parts: {len(body)} chars")
                             break
-                        except:
+                        except Exception:
                             pass
         # Fallback to body.data at root level
         if not body and 'body' in msg.payload:
@@ -279,23 +435,26 @@ async def reclassify_message(message_id: str, request: ReclassifyRequest) -> dic
                 try:
                     body = base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore')
                     logger.info(f"[RECLASSIFY] Extracted body from root: {len(body)} chars")
-                except:
+                except Exception:
                     pass
     # Final fallback to snippet
     if not body:
         body = msg.snippet or ""
         logger.info(f"[RECLASSIFY] Using snippet as body: {len(body)} chars")
-    
+
     try:
         logger.info(f"[RECLASSIFY] Calling LLM with subject='{subject[:50]}...' body={len(body)} chars")
         result = processor.categorize_message(subject, body)
-        logger.info(f"[RECLASSIFY] LLM returned: labels={result.get('labels')}, priority={result.get('priority')}, summary='{result.get('summary', '')[:50]}...'")
-        
+        logger.info(
+            f"[RECLASSIFY] LLM returned: labels={result.get('labels')}, "
+            f"priority={result.get('priority')}, summary='{result.get('summary', '')[:50]}...'"
+        )
+
         # Create a new classification record
         from datetime import datetime, timezone
         import uuid
         from .models.classification_record import ClassificationRecord
-        
+
         classification_record = ClassificationRecord(
             id=str(uuid.uuid4()),
             message_id=message_id,
@@ -305,20 +464,19 @@ async def reclassify_message(message_id: str, request: ReclassifyRequest) -> dic
             model=request.model or processor.model,
             created_at=datetime.now(timezone.utc)
         )
-        
+
         logger.info(f"[RECLASSIFY] Created classification record: id={classification_record.id}")
-        
+
         # Save the classification record
         storage.save_classification_record(classification_record)
         logger.info(f"[RECLASSIFY] Saved classification record to database")
-        
+
         # Update the message to point to this latest classification
         storage.update_message_latest_classification(message_id, classification_record.id)
         logger.info(f"[RECLASSIFY] Updated message latest_classification_id to {classification_record.id}")
-        
-        logger.info(f"[RECLASSIFY] Reclassification complete for message_id={message_id}")
 
-        
+        logger.info("[RECLASSIFY] Reclassification complete for message_id=%s", message_id)
+
         return {
             "success": True,
             "message_id": message_id,

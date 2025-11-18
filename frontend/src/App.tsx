@@ -14,46 +14,46 @@ const theme = createTheme({
 });
 
 const App: React.FC = () => {
-  const [filter, setFilter] = useState<{ type: 'priority' | 'label' | 'status' | null; value: string | null }>({
-    type: null,
-    value: null,
+  const [filters, setFilters] = useState<{
+    priority: string | null;
+    labels: string[];
+    status: 'all' | 'classified' | 'unclassified';
+  }>({
+    priority: null,
+    labels: [],
+    status: 'all',
   });
-  const [classificationStatus, setClassificationStatus] = useState<'all' | 'classified' | 'unclassified'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<'recent' | 'oldest'>('recent');
   const [selectedModel, setSelectedModel] = useState<string>('gemma:2b');
 
   const handleStatusChange = (_event: React.MouseEvent<HTMLElement>, newStatus: 'all' | 'classified' | 'unclassified' | null) => {
     if (newStatus !== null) {
-      setClassificationStatus(newStatus);
-      if (newStatus === 'all') {
-        setFilter({ type: null, value: null });
-      } else {
-        setFilter({ type: 'status', value: newStatus });
-      }
+      setFilters({ ...filters, status: newStatus });
     }
   };
 
-  const clearFilter = () => {
-    setFilter({ type: null, value: null });
-    setClassificationStatus('all');
+  const clearAllFilters = () => {
+    setFilters({ priority: null, labels: [], status: 'all' });
   };
 
   const handleLabelFilter = (label: string) => {
-    // Toggle label filter: if already selected, clear it; otherwise set it
-    if (filter.type === 'label' && filter.value === label) {
-      setFilter({ type: null, value: null });
+    // Toggle label filter: add or remove from array
+    if (filters.labels.includes(label)) {
+      // Remove this label
+      setFilters({ ...filters, labels: filters.labels.filter(l => l !== label) });
     } else {
-      setFilter({ type: 'label', value: label });
+      // Add this label
+      setFilters({ ...filters, labels: [...filters.labels, label] });
     }
   };
 
   const handlePriorityFilter = (priority: string) => {
     // Toggle priority filter: if already selected, clear it; otherwise set it
-    if (filter.type === 'priority' && filter.value === priority) {
-      setFilter({ type: null, value: null });
+    if (filters.priority === priority) {
+      setFilters({ ...filters, priority: null });
     } else {
-      setFilter({ type: 'priority', value: priority });
+      setFilters({ ...filters, priority });
     }
   };
 
@@ -89,17 +89,16 @@ const App: React.FC = () => {
             onSearchChange={setSearchQuery}
             sortOrder={sortOrder}
             onSortToggle={toggleSortOrder}
-            classificationStatus={classificationStatus}
+            filters={filters}
             onStatusChange={handleStatusChange}
-            filter={filter}
-            onClearFilter={clearFilter}
+            onClearAllFilters={clearAllFilters}
             onLabelFilter={handleLabelFilter}
             onPriorityFilter={handlePriorityFilter}
             selectedModel={selectedModel}
             onModelChange={setSelectedModel}
           />
 
-          <EmailList filter={filter} searchQuery={searchQuery} sortOrder={sortOrder} />
+          <EmailList filters={filters} searchQuery={searchQuery} sortOrder={sortOrder} selectedModel={selectedModel} />
         </Box>
       </Container>
     </ThemeProvider>

@@ -47,19 +47,19 @@ class SQLiteStorage(StorageBackend):
             )
             """
         )
-        
+
         # Migration: Add latest_classification_id column to existing tables
         try:
             cur.execute("ALTER TABLE messages ADD COLUMN latest_classification_id TEXT")
         except sqlite3.OperationalError:
             pass  # Column already exists
-        
+
         # Migration: Add has_attachments if it doesn't exist
         try:
             cur.execute("ALTER TABLE messages ADD COLUMN has_attachments INTEGER")
         except sqlite3.OperationalError:
             pass  # Column already exists
-        
+
         # Keep old classification columns for backward compatibility during migration
         try:
             cur.execute("ALTER TABLE messages ADD COLUMN classification_labels TEXT")
@@ -73,7 +73,7 @@ class SQLiteStorage(StorageBackend):
             cur.execute("ALTER TABLE messages ADD COLUMN summary TEXT")
         except sqlite3.OperationalError:
             pass
-        
+
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS metadata (
@@ -82,7 +82,7 @@ class SQLiteStorage(StorageBackend):
             )
             """
         )
-        
+
         # Classifications table - now the primary source of truth
         cur.execute(
             """
@@ -98,17 +98,17 @@ class SQLiteStorage(StorageBackend):
             )
             """
         )
-        
+
         # Create index for faster lookups
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_classifications_message_id 
+            CREATE INDEX IF NOT EXISTS idx_classifications_message_id
             ON classifications(message_id)
             """
         )
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_classifications_created_at 
+            CREATE INDEX IF NOT EXISTS idx_classifications_created_at
             ON classifications(created_at DESC)
             """
         )
@@ -129,7 +129,8 @@ class SQLiteStorage(StorageBackend):
         cur.execute(
             """
             INSERT OR REPLACE INTO messages
-            (id, thread_id, from_addr, to_addr, subject, snippet, labels, internal_date, payload, raw, headers, fetched_at, has_attachments)
+            (id, thread_id, from_addr, to_addr, subject, snippet, labels, internal_date,
+             payload, raw, headers, fetched_at, has_attachments)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -209,18 +210,18 @@ class SQLiteStorage(StorageBackend):
 
     def create_classification(self, message_id: str, labels: List[str], priority: str, summary: str, model: str = None) -> str:
         """Create a new classification record and link it to the message.
-        
+
         Returns the classification ID.
         """
         import uuid
         from datetime import datetime, timezone
-        
+
         classification_id = str(uuid.uuid4())
         created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        
+
         conn = self.connect()
         cur = conn.cursor()
-        
+
         # Insert classification record
         cur.execute(
             """
@@ -238,7 +239,7 @@ class SQLiteStorage(StorageBackend):
                 created_at,
             ),
         )
-        
+
         # Update message to point to this latest classification
         cur.execute(
             """
@@ -248,15 +249,15 @@ class SQLiteStorage(StorageBackend):
             """,
             (classification_id, message_id),
         )
-        
+
         conn.commit()
         conn.close()
-        
+
         return classification_id
-    
+
     def get_latest_classification(self, message_id: str) -> Optional[dict]:
         """Get the most recent classification for a message.
-        
+
         Returns dict with: id, labels, priority, summary, model, created_at
         """
         conn = self.connect()
@@ -272,10 +273,10 @@ class SQLiteStorage(StorageBackend):
         )
         row = cur.fetchone()
         conn.close()
-        
+
         if not row:
             return None
-        
+
         return {
             "id": row[0],
             "labels": self._deserialize(row[1]) if row[1] else [],
@@ -292,14 +293,14 @@ class SQLiteStorage(StorageBackend):
         rows = cur.fetchall()
         conn.close()
         return [r[0] for r in rows]
-    
+
     def get_message_by_id(self, message_id: str) -> Optional[MailMessage]:
         """Get a single message by ID with latest classification."""
         conn = self.connect()
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT m.id, m.thread_id, m.from_addr, m.to_addr, m.subject, m.snippet, 
+            SELECT m.id, m.thread_id, m.from_addr, m.to_addr, m.subject, m.snippet,
                    m.labels, m.internal_date, m.payload, m.raw, m.headers, m.has_attachments,
                    c.labels as class_labels, c.priority as class_priority, c.summary as class_summary
             FROM messages m
@@ -310,10 +311,10 @@ class SQLiteStorage(StorageBackend):
         )
         row = cur.fetchone()
         conn.close()
-        
+
         if not row:
             return None
-        
+
         # Use row_factory=Row to access by column name
         return MailMessage(
             id=row['id'],
@@ -332,25 +333,25 @@ class SQLiteStorage(StorageBackend):
             priority=row['class_priority'],
             summary=row['class_summary'],
         )
-    
+
     def get_unclassified_message_ids(self) -> List[str]:
         """Get IDs of messages that haven't been classified yet."""
         conn = self.connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT id FROM messages 
+            SELECT id FROM messages
             WHERE latest_classification_id IS NULL
         """)
         rows = cur.fetchall()
         conn.close()
         return [r[0] for r in rows]
-    
+
     def count_classified_messages(self) -> int:
         """Count how many messages have been classified."""
         conn = self.connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT COUNT(*) FROM messages 
+            SELECT COUNT(*) FROM messages
             WHERE latest_classification_id IS NOT NULL
         """)
         count = cur.fetchone()[0]
@@ -363,12 +364,12 @@ class SQLiteStorage(StorageBackend):
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT m.id, m.thread_id, m.from_addr, m.to_addr, m.subject, m.snippet, 
+            SELECT m.id, m.thread_id, m.from_addr, m.to_addr, m.subject, m.snippet,
                    m.labels, m.internal_date, m.payload, m.raw, m.headers, m.has_attachments,
                    c.labels as class_labels, c.priority as class_priority, c.summary as class_summary
             FROM messages m
             LEFT JOIN classifications c ON m.latest_classification_id = c.id
-            ORDER BY m.internal_date DESC 
+            ORDER BY m.internal_date DESC
             LIMIT ? OFFSET ?
             """,
             (limit, offset)
@@ -419,7 +420,7 @@ class SQLiteStorage(StorageBackend):
         """Get all unique classification labels with their counts efficiently."""
         conn = self.connect()
         cur = conn.cursor()
-        
+
         try:
             # Use json_each to efficiently extract and count labels
             cur.execute(
@@ -441,16 +442,16 @@ class SQLiteStorage(StorageBackend):
             try:
                 cur.close()
                 conn.close()
-            except:
+            except Exception:
                 pass
-            
+
             conn = self.connect()
             cur = conn.cursor()
             cur.execute("SELECT labels FROM classifications WHERE labels IS NOT NULL")
             rows = cur.fetchall()
             cur.close()
             conn.close()
-            
+
             label_counts = {}
             for (labels_str,) in rows:
                 try:
@@ -458,34 +459,34 @@ class SQLiteStorage(StorageBackend):
                     if isinstance(labels, list):
                         for label in labels:
                             label_counts[label] = label_counts.get(label, 0) + 1
-                except:
+                except Exception:
                     pass
             return label_counts
 
     def list_messages_by_label(self, label: str, limit: int = 100, offset: int = 0) -> tuple[List[MailMessage], int]:
         """List messages filtered by classification label.
-        
+
         Returns a tuple of (messages, total_count).
         """
         conn = self.connect()
         cur = conn.cursor()
-        
+
         # Get messages with the specified label
         cur.execute(
             """
-            SELECT m.id, m.thread_id, m.from_addr, m.to_addr, m.subject, m.snippet, 
+            SELECT m.id, m.thread_id, m.from_addr, m.to_addr, m.subject, m.snippet,
                    m.labels, m.internal_date, m.payload, m.raw, m.headers, m.has_attachments,
                    c.labels as class_labels, c.priority as class_priority, c.summary as class_summary
             FROM messages m
             INNER JOIN classifications c ON m.latest_classification_id = c.id
             WHERE c.labels LIKE ?
-            ORDER BY m.internal_date DESC 
+            ORDER BY m.internal_date DESC
             LIMIT ? OFFSET ?
             """,
             (f'%"{label}"%', limit, offset)
         )
         rows = cur.fetchall()
-        
+
         # Get total count for this label
         cur.execute(
             """
@@ -497,14 +498,14 @@ class SQLiteStorage(StorageBackend):
             (f'%"{label}"%',)
         )
         total = cur.fetchone()['count']
-        
+
         cur.close()
         conn.close()
-        
+
         messages = []
         for r in rows:
             classification_labels = self._deserialize(r['class_labels']) if r['class_labels'] else None
-            
+
             # Filter in Python to ensure exact label match
             if classification_labels and label in classification_labels:
                 messages.append(
@@ -526,32 +527,32 @@ class SQLiteStorage(StorageBackend):
                         summary=r['class_summary'],
                     )
                 )
-        
+
         return messages, total
 
     def list_messages_by_priority(self, priority: str, limit: int = 100, offset: int = 0) -> tuple[List[MailMessage], int]:
         """List messages filtered by priority.
-        
+
         Returns a tuple of (messages, total_count).
         """
         conn = self.connect()
         cur = conn.cursor()
-        
+
         cur.execute(
             """
-            SELECT m.id, m.thread_id, m.from_addr, m.to_addr, m.subject, m.snippet, 
+            SELECT m.id, m.thread_id, m.from_addr, m.to_addr, m.subject, m.snippet,
                    m.labels, m.internal_date, m.payload, m.raw, m.headers, m.has_attachments,
                    c.labels as class_labels, c.priority as class_priority, c.summary as class_summary
             FROM messages m
             INNER JOIN classifications c ON m.latest_classification_id = c.id
             WHERE LOWER(c.priority) = LOWER(?)
-            ORDER BY m.internal_date DESC 
+            ORDER BY m.internal_date DESC
             LIMIT ? OFFSET ?
             """,
             (priority, limit, offset)
         )
         rows = cur.fetchall()
-        
+
         # Get total count for this priority
         cur.execute(
             """
@@ -563,10 +564,10 @@ class SQLiteStorage(StorageBackend):
             (priority,)
         )
         total = cur.fetchone()['count']
-        
+
         cur.close()
         conn.close()
-        
+
         messages = []
         for r in rows:
             messages.append(
@@ -588,46 +589,46 @@ class SQLiteStorage(StorageBackend):
                     summary=r['class_summary'],
                 )
             )
-        
+
         return messages, total
 
     def list_classified_messages(self, limit: int = 100, offset: int = 0) -> tuple[List[MailMessage], int]:
         """List only classified messages.
-        
+
         Returns a tuple of (messages, total_count).
         A message is classified if it has a latest_classification_id.
         """
         conn = self.connect()
         cur = conn.cursor()
-        
+
         cur.execute(
             """
-            SELECT m.id, m.thread_id, m.from_addr, m.to_addr, m.subject, m.snippet, 
+            SELECT m.id, m.thread_id, m.from_addr, m.to_addr, m.subject, m.snippet,
                    m.labels, m.internal_date, m.payload, m.raw, m.headers, m.has_attachments,
                    c.labels as class_labels, c.priority as class_priority, c.summary as class_summary
             FROM messages m
             INNER JOIN classifications c ON m.latest_classification_id = c.id
             WHERE m.latest_classification_id IS NOT NULL
-            ORDER BY m.internal_date DESC 
+            ORDER BY m.internal_date DESC
             LIMIT ? OFFSET ?
             """,
             (limit, offset)
         )
         rows = cur.fetchall()
-        
+
         # Get total count
         cur.execute(
             """
             SELECT COUNT(*) as count
-            FROM messages 
+            FROM messages
             WHERE latest_classification_id IS NOT NULL
             """
         )
         total = cur.fetchone()['count']
-        
+
         cur.close()
         conn.close()
-        
+
         messages = []
         for r in rows:
             messages.append(
@@ -649,46 +650,46 @@ class SQLiteStorage(StorageBackend):
                     summary=r['class_summary'],
                 )
             )
-        
+
         return messages, total
 
     def list_unclassified_messages(self, limit: int = 100, offset: int = 0) -> tuple[List[MailMessage], int]:
         """List only unclassified messages.
-        
+
         Returns a tuple of (messages, total_count).
         A message is unclassified if it has no latest_classification_id.
         """
         conn = self.connect()
         cur = conn.cursor()
-        
+
         cur.execute(
             """
-            SELECT m.id, m.thread_id, m.from_addr, m.to_addr, m.subject, m.snippet, 
+            SELECT m.id, m.thread_id, m.from_addr, m.to_addr, m.subject, m.snippet,
                    m.labels, m.internal_date, m.payload, m.raw, m.headers, m.has_attachments,
                    c.labels as class_labels, c.priority as class_priority, c.summary as class_summary
             FROM messages m
             LEFT JOIN classifications c ON m.latest_classification_id = c.id
             WHERE m.latest_classification_id IS NULL
-            ORDER BY m.internal_date DESC 
+            ORDER BY m.internal_date DESC
             LIMIT ? OFFSET ?
             """,
             (limit, offset)
         )
         rows = cur.fetchall()
-        
+
         # Get total count
         cur.execute(
             """
             SELECT COUNT(*) as count
-            FROM messages 
+            FROM messages
             WHERE latest_classification_id IS NULL
             """
         )
         total = cur.fetchone()['count']
-        
+
         cur.close()
         conn.close()
-        
+
         messages = []
         for r in rows:
             messages.append(
@@ -710,5 +711,5 @@ class SQLiteStorage(StorageBackend):
                     summary=r['class_summary'],
                 )
             )
-        
+
         return messages, total

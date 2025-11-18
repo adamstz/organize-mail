@@ -8,10 +8,13 @@ describe('EmailToolbar Component', () => {
     onSearchChange: vi.fn(),
     sortOrder: 'recent' as const,
     onSortToggle: vi.fn(),
-    classificationStatus: 'all' as const,
+    filters: {
+      priority: null,
+      labels: [],
+      status: 'all' as const,
+    },
     onStatusChange: vi.fn(),
-    filter: { type: null, value: null },
-    onClearFilter: vi.fn(),
+    onClearAllFilters: vi.fn(),
     onLabelFilter: vi.fn(),
     onPriorityFilter: vi.fn(),
     selectedModel: 'gemma:2b',
@@ -19,7 +22,7 @@ describe('EmailToolbar Component', () => {
   };
 
   beforeEach(() => {
-    global.fetch = vi.fn();
+    global.fetch = vi.fn() as unknown as typeof fetch;
   });
 
   it('renders search input field', () => {
@@ -46,7 +49,7 @@ describe('EmailToolbar Component', () => {
   });
 
   it('highlights selected priority filter', () => {
-    render(<EmailToolbar {...defaultProps} filter={{ type: 'priority', value: 'high' }} />);
+    render(<EmailToolbar {...defaultProps} filters={{ priority: 'high', labels: [], status: 'all' }} />);
 
     const highChip = screen.getByText(/High/).closest('.MuiChip-root');
     expect(highChip).toHaveClass('MuiChip-filled');
@@ -69,7 +72,7 @@ describe('EmailToolbar Component', () => {
   });
 
   it('fetches available models on mount', async () => {
-    (global.fetch as any).mockResolvedValueOnce({
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         models: [
@@ -82,12 +85,12 @@ describe('EmailToolbar Component', () => {
     render(<EmailToolbar {...defaultProps} />);
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith('/models');
+      expect(global.fetch as ReturnType<typeof vi.fn>).toHaveBeenCalledWith('/models');
     });
   });
 
   it('calls onModelChange when model is selected', async () => {
-    (global.fetch as any).mockResolvedValueOnce({
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         models: [
@@ -102,7 +105,7 @@ describe('EmailToolbar Component', () => {
 
     // Wait for models to load
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalled();
+      expect(global.fetch as ReturnType<typeof vi.fn>).toHaveBeenCalled();
     });
 
     // Verify the select is present with current value
@@ -113,7 +116,7 @@ describe('EmailToolbar Component', () => {
   it('shows error message when model fetch fails', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     
-    (global.fetch as any).mockRejectedValueOnce(new Error('Network error'));
+    (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Network error'));
 
     render(<EmailToolbar {...defaultProps} />);
 

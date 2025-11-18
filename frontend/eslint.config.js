@@ -33,4 +33,13 @@ export default [
       ],
     },
   },
+  {
+    files: ['**/*.test.{ts,tsx}', '**/test/**/*.{ts,tsx}'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        global: 'readonly',
+      },
+    },
+  },
 ]

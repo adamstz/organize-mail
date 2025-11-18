@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 
 
@@ -19,7 +19,7 @@ class MailMessage:
     raw: Optional[str] = None
     headers: Dict[str, str] = field(default_factory=dict)
     has_attachments: bool = False
-    
+
     # Classification fields (populated by LLM processor)
     classification_labels: Optional[List[str]] = None
     priority: Optional[str] = None
@@ -79,20 +79,20 @@ class MailMessage:
     @staticmethod
     def _has_attachments(payload: Optional[Dict[str, Any]]) -> bool:
         """Check if the message payload contains attachments.
-        
+
         An attachment is identified by:
         - A part with a non-empty filename, OR
         - A part with Content-Disposition header containing "attachment"
         """
         if not payload:
             return False
-        
+
         def _check_part(part: Dict[str, Any]) -> bool:
             # Check for filename
             filename = part.get("filename", "")
             if filename:
                 return True
-            
+
             # Check for attachment disposition in headers
             headers = part.get("headers", [])
             for header in headers:
@@ -100,13 +100,13 @@ class MailMessage:
                     value = header.get("value", "").lower()
                     if "attachment" in value:
                         return True
-            
+
             # Recursively check nested parts (multipart messages)
             parts = part.get("parts", [])
             for subpart in parts:
                 if _check_part(subpart):
                     return True
-            
+
             return False
-        
+
         return _check_part(payload)

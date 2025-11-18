@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import EmailItem from '../components/EmailItem';
 import { Email } from '../types/email';
 
@@ -21,7 +21,7 @@ describe('EmailItem Component', () => {
   beforeEach(() => {
     mockOnDelete = vi.fn();
     mockOnReclassify = vi.fn();
-    global.fetch = vi.fn();
+    global.fetch = vi.fn() as unknown as typeof fetch;
   });
 
   it('renders email with subject and summary', () => {
@@ -107,9 +107,11 @@ describe('EmailItem Component', () => {
   });
 
   it('calls onReclassify when reclassify button is clicked and API succeeds', async () => {
-    (global.fetch as any).mockResolvedValueOnce({
+    vi.useFakeTimers();
+    
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ success: true }),
+      json: async () => ({ success: true, priority: 'high' }),
     });
 
     render(
@@ -124,31 +126,33 @@ describe('EmailItem Component', () => {
     );
 
     const reclassifyButton = screen.getByLabelText('reclassify');
-    fireEvent.click(reclassifyButton);
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:8000/messages/123/reclassify',
-        expect.objectContaining({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'gemma:7b' }),
-        })
-      );
+    
+    await act(async () => {
+      fireEvent.click(reclassifyButton);
+      // Wait for the fetch to complete
+      await vi.runAllTimersAsync();
     });
 
-    await waitFor(() => {
-      expect(mockOnReclassify).toHaveBeenCalledWith('123');
-    });
+    expect(global.fetch as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
+      '/messages/123/reclassify',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'gemma:7b' }),
+      })
+    );
+    expect(mockOnReclassify).toHaveBeenCalledWith('123');
+    
+    vi.useRealTimers();
   });
 
   it('shows loading spinner while reclassifying', async () => {
-    let resolvePromise: (value: any) => void;
-    const fetchPromise = new Promise((resolve) => {
-      resolvePromise = resolve;
+    let resolvePromise: (value: unknown) => void;
+    const fetchPromise = new Promise<Response>((resolve) => {
+      resolvePromise = resolve as (value: unknown) => void;
     });
     
-    (global.fetch as any).mockReturnValueOnce(fetchPromise);
+    (global.fetch as ReturnType<typeof vi.fn>).mockReturnValueOnce(fetchPromise);
 
     render(
       <EmailItem
@@ -173,16 +177,18 @@ describe('EmailItem Component', () => {
     resolvePromise!({
       ok: true,
       json: async () => ({ success: true }),
-    });
+    } as unknown as Response);
 
-    // Spinner should disappear
+    // Spinner should disappear after the async operation completes
     await waitFor(() => {
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     });
   });
 
   it('does not call onReclassify when API fails', async () => {
-    (global.fetch as any).mockResolvedValueOnce({
+    vi.useFakeTimers();
+    
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: false,
       status: 500,
     });
@@ -201,16 +207,18 @@ describe('EmailItem Component', () => {
     );
 
     const reclassifyButton = screen.getByLabelText('reclassify');
-    fireEvent.click(reclassifyButton);
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalled();
+    
+    await act(async () => {
+      fireEvent.click(reclassifyButton);
+      await vi.runAllTimersAsync();
     });
 
+    expect(global.fetch as ReturnType<typeof vi.fn>).toHaveBeenCalled();
     expect(mockOnReclassify).not.toHaveBeenCalled();
     expect(consoleErrorSpy).toHaveBeenCalled();
 
     consoleErrorSpy.mockRestore();
+    vi.useRealTimers();
   });
 
   it('expands to show full body when clicked', () => {

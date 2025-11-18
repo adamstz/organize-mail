@@ -16,7 +16,6 @@ from ..clients.gmail import (
     build_gmail_service,
     fetch_messages_by_history,
     fetch_message,
-    extract_message_snippet,
 )
 from ..models.message import MailMessage
 from .. import storage

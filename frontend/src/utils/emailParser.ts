@@ -153,7 +153,7 @@ export const sanitizeBody = (text: string): string => {
 };
 
 // Parse backend message to Email type
-export const parseBackendMessage = (m: Record<string, unknown>, idx: number): Email | null => {
+export const parseBackendMessage = (m: Record<string, unknown>): Email | null => {
   try {
     const formatter = new Intl.DateTimeFormat(undefined, {
       year: 'numeric',

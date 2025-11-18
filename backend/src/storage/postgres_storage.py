@@ -13,7 +13,7 @@ from .storage_interface import StorageBackend
 
 def get_db_url() -> str:
     """Get PostgreSQL connection URL from environment variables.
-    
+
     Raises ValueError if DATABASE_URL is not set.
     """
     db_url = os.environ.get("DATABASE_URL")
@@ -38,7 +38,7 @@ class PostgresStorage(StorageBackend):
         """Initialize database tables and indexes."""
         conn = self.connect()
         cur = conn.cursor()
-        
+
         # Messages table
         cur.execute(
             """
@@ -60,7 +60,7 @@ class PostgresStorage(StorageBackend):
             )
             """
         )
-        
+
         # Metadata table
         cur.execute(
             """
@@ -70,7 +70,7 @@ class PostgresStorage(StorageBackend):
             )
             """
         )
-        
+
         # Classifications table
         cur.execute(
             """
@@ -86,57 +86,57 @@ class PostgresStorage(StorageBackend):
             )
             """
         )
-        
+
         # Create indexes for faster lookups
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_classifications_message_id 
+            CREATE INDEX IF NOT EXISTS idx_classifications_message_id
             ON classifications(message_id)
             """
         )
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_classifications_created_at 
+            CREATE INDEX IF NOT EXISTS idx_classifications_created_at
             ON classifications(created_at DESC)
             """
         )
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_messages_fetched_at 
+            CREATE INDEX IF NOT EXISTS idx_messages_fetched_at
             ON messages(fetched_at DESC)
             """
         )
-        
+
         # Create GIN index on labels JSONB column for fast label queries
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_classifications_labels_gin 
+            CREATE INDEX IF NOT EXISTS idx_classifications_labels_gin
             ON classifications USING GIN (labels jsonb_path_ops)
             """
         )
-        
+
         # Create index on classifications.priority for priority filtering
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_classifications_priority 
+            CREATE INDEX IF NOT EXISTS idx_classifications_priority
             ON classifications(priority) WHERE priority IS NOT NULL
             """
         )
-        
+
         # Create index on messages.latest_classification_id for faster joins
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_messages_latest_classification 
+            CREATE INDEX IF NOT EXISTS idx_messages_latest_classification
             ON messages(latest_classification_id) WHERE latest_classification_id IS NOT NULL
             """
         )
-        
+
         # Add foreign key constraint if not exists
         try:
             cur.execute(
                 """
-                ALTER TABLE messages 
-                ADD CONSTRAINT fk_messages_classification 
+                ALTER TABLE messages
+                ADD CONSTRAINT fk_messages_classification
                 FOREIGN KEY(latest_classification_id) REFERENCES classifications(id)
                 """
             )
@@ -149,7 +149,7 @@ class PostgresStorage(StorageBackend):
             import sys
             print(f"Warning: Could not add foreign key constraint: {e}", file=sys.stderr)
             conn.rollback()
-        
+
         cur.close()
         conn.close()
 
@@ -157,11 +157,11 @@ class PostgresStorage(StorageBackend):
         """Save or update a message in the database."""
         conn = self.connect()
         cur = conn.cursor()
-        
+
         cur.execute(
             """
             INSERT INTO messages
-            (id, thread_id, from_addr, to_addr, subject, snippet, labels, 
+            (id, thread_id, from_addr, to_addr, subject, snippet, labels,
              internal_date, payload, raw, headers, fetched_at, has_attachments)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO UPDATE SET
@@ -194,7 +194,7 @@ class PostgresStorage(StorageBackend):
                 msg.has_attachments,
             ),
         )
-        
+
         conn.commit()
         cur.close()
         conn.close()
@@ -203,7 +203,7 @@ class PostgresStorage(StorageBackend):
         """Persist a ClassificationRecord-like object."""
         conn = self.connect()
         cur = conn.cursor()
-        
+
         cur.execute(
             """
             INSERT INTO classifications
@@ -227,7 +227,7 @@ class PostgresStorage(StorageBackend):
                 record.created_at if record.created_at is not None else None,
             ),
         )
-        
+
         conn.commit()
         cur.close()
         conn.close()
@@ -236,7 +236,7 @@ class PostgresStorage(StorageBackend):
         """Get all classification records for a message, ordered by creation date."""
         conn = self.connect()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        
+
         cur.execute(
             "SELECT * FROM classifications WHERE message_id = %s ORDER BY created_at DESC",
             (message_id,)
@@ -252,7 +252,7 @@ class PostgresStorage(StorageBackend):
             # JSONB columns are automatically deserialized by psycopg2
             labels = r['labels'] if r['labels'] is not None else []
             created_at = r['created_at']
-            
+
             out.append(
                 ClassificationRecord(
                     id=r['id'],
@@ -268,17 +268,17 @@ class PostgresStorage(StorageBackend):
 
     def create_classification(self, message_id: str, labels: List[str], priority: str, summary: str, model: str = None) -> str:
         """Create a new classification record and link it to the message.
-        
+
         Returns the classification ID.
         """
         import uuid
-        
+
         classification_id = str(uuid.uuid4())
         created_at = datetime.now(timezone.utc)
-        
+
         conn = self.connect()
         cur = conn.cursor()
-        
+
         # Insert classification record
         cur.execute(
             """
@@ -296,7 +296,7 @@ class PostgresStorage(StorageBackend):
                 created_at,
             ),
         )
-        
+
         # Update message to point to this latest classification
         cur.execute(
             """
@@ -306,18 +306,18 @@ class PostgresStorage(StorageBackend):
             """,
             (classification_id, message_id),
         )
-        
+
         conn.commit()
         cur.close()
         conn.close()
-        
+
         return classification_id
-    
+
     def update_message_latest_classification(self, message_id: str, classification_id: str) -> None:
         """Update the latest_classification_id for a message."""
         conn = self.connect()
         cur = conn.cursor()
-        
+
         cur.execute(
             """
             UPDATE messages
@@ -326,19 +326,19 @@ class PostgresStorage(StorageBackend):
             """,
             (classification_id, message_id)
         )
-        
+
         conn.commit()
         cur.close()
         conn.close()
-    
+
     def get_latest_classification(self, message_id: str) -> Optional[dict]:
         """Get the most recent classification for a message.
-        
+
         Returns dict with: id, labels, priority, summary, model, created_at
         """
         conn = self.connect()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        
+
         cur.execute(
             """
             SELECT c.id, c.labels, c.priority, c.summary, c.model, c.created_at
@@ -351,10 +351,10 @@ class PostgresStorage(StorageBackend):
         row = cur.fetchone()
         cur.close()
         conn.close()
-        
+
         if not row:
             return None
-        
+
         return {
             "id": row['id'],
             "labels": row['labels'] if row['labels'] else [],
@@ -373,12 +373,12 @@ class PostgresStorage(StorageBackend):
         cur.close()
         conn.close()
         return [r[0] for r in rows]
-    
+
     def get_message_by_id(self, message_id: str) -> Optional[MailMessage]:
         """Get a single message by ID with latest classification."""
         conn = self.connect()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        
+
         cur.execute(
             """
             SELECT m.*, c.labels as class_labels, c.priority as class_priority, c.summary as class_summary
@@ -391,10 +391,10 @@ class PostgresStorage(StorageBackend):
         row = cur.fetchone()
         cur.close()
         conn.close()
-        
+
         if not row:
             return None
-        
+
         return MailMessage(
             id=row['id'],
             thread_id=row['thread_id'],
@@ -412,26 +412,26 @@ class PostgresStorage(StorageBackend):
             summary=row['class_summary'],
             has_attachments=row['has_attachments'] or False,
         )
-    
+
     def get_unclassified_message_ids(self) -> List[str]:
         """Get IDs of messages that haven't been classified yet."""
         conn = self.connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT id FROM messages 
+            SELECT id FROM messages
             WHERE latest_classification_id IS NULL
         """)
         rows = cur.fetchall()
         cur.close()
         conn.close()
         return [r[0] for r in rows]
-    
+
     def count_classified_messages(self) -> int:
         """Count how many messages have been classified."""
         conn = self.connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT COUNT(*) FROM messages 
+            SELECT COUNT(*) FROM messages
             WHERE latest_classification_id IS NOT NULL
         """)
         count = cur.fetchone()[0]
@@ -443,13 +443,13 @@ class PostgresStorage(StorageBackend):
         """List messages with their latest classifications."""
         conn = self.connect()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        
+
         cur.execute(
             """
             SELECT m.*, c.labels as class_labels, c.priority as class_priority, c.summary as class_summary
             FROM messages m
             LEFT JOIN classifications c ON m.latest_classification_id = c.id
-            ORDER BY m.internal_date DESC 
+            ORDER BY m.internal_date DESC
             LIMIT %s OFFSET %s
             """,
             (limit, offset)
@@ -457,7 +457,7 @@ class PostgresStorage(StorageBackend):
         rows = cur.fetchall()
         cur.close()
         conn.close()
-        
+
         out: List[MailMessage] = []
         for r in rows:
             out.append(
@@ -499,7 +499,7 @@ class PostgresStorage(StorageBackend):
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO metadata (key, value) 
+            INSERT INTO metadata (key, value)
             VALUES (%s, %s)
             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
             """,
@@ -513,16 +513,16 @@ class PostgresStorage(StorageBackend):
         """Get all unique classification labels with their counts efficiently."""
         conn = self.connect()
         cur = conn.cursor()
-        
+
         try:
             # Native JSONB query - fast with GIN index
             cur.execute(
                 """
-                SELECT 
+                SELECT
                     jsonb_array_elements_text(labels) as label,
                     COUNT(*) as count
                 FROM classifications
-                WHERE labels IS NOT NULL 
+                WHERE labels IS NOT NULL
                 GROUP BY label
                 ORDER BY count DESC
                 """
@@ -532,21 +532,21 @@ class PostgresStorage(StorageBackend):
             cur.close()
             conn.close()
             return result
-        except Exception as e:
+        except Exception:
             # Fallback: fetch labels column only and count in Python
             try:
                 cur.close()
                 conn.close()
-            except:
+            except Exception:
                 pass
-            
+
             conn = self.connect()
             cur = conn.cursor()
             cur.execute("SELECT labels FROM classifications WHERE labels IS NOT NULL")
             rows = cur.fetchall()
             cur.close()
             conn.close()
-            
+
             label_counts = {}
             for (labels,) in rows:
                 try:
@@ -554,19 +554,19 @@ class PostgresStorage(StorageBackend):
                     if isinstance(labels, list):
                         for label in labels:
                             label_counts[label] = label_counts.get(label, 0) + 1
-                except:
+                except Exception:
                     pass
             return label_counts
 
     def list_messages_by_label(self, label: str, limit: int = 100, offset: int = 0) -> tuple[List[MailMessage], int]:
         """List messages filtered by classification label (database-level filtering).
-        
+
         Returns a tuple of (messages, total_count).
         Uses GIN index on classifications.labels for fast filtering.
         """
         conn = self.connect()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        
+
         # Use JSONB containment operator @> with GIN index on classifications table
         cur.execute(
             """
@@ -574,13 +574,13 @@ class PostgresStorage(StorageBackend):
             FROM messages m
             INNER JOIN classifications c ON m.latest_classification_id = c.id
             WHERE c.labels @> %s::jsonb
-            ORDER BY m.internal_date DESC 
+            ORDER BY m.internal_date DESC
             LIMIT %s OFFSET %s
             """,
             (json.dumps([label]), limit, offset)
         )
         rows = cur.fetchall()
-        
+
         # Get total count for this label
         cur.execute(
             """
@@ -592,10 +592,10 @@ class PostgresStorage(StorageBackend):
             (json.dumps([label]),)
         )
         total = cur.fetchone()['count']
-        
+
         cur.close()
         conn.close()
-        
+
         messages = []
         for r in rows:
             messages.append(
@@ -621,26 +621,26 @@ class PostgresStorage(StorageBackend):
 
     def list_messages_by_priority(self, priority: str, limit: int = 100, offset: int = 0) -> tuple[List[MailMessage], int]:
         """List messages filtered by priority (database-level filtering).
-        
+
         Returns a tuple of (messages, total_count).
         Uses index on classifications.priority for fast filtering.
         """
         conn = self.connect()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        
+
         cur.execute(
             """
             SELECT m.*, c.labels as class_labels, c.priority as class_priority, c.summary as class_summary
             FROM messages m
             INNER JOIN classifications c ON m.latest_classification_id = c.id
             WHERE LOWER(c.priority) = LOWER(%s)
-            ORDER BY m.internal_date DESC 
+            ORDER BY m.internal_date DESC
             LIMIT %s OFFSET %s
             """,
             (priority, limit, offset)
         )
         rows = cur.fetchall()
-        
+
         # Get total count for this priority
         cur.execute(
             """
@@ -652,10 +652,10 @@ class PostgresStorage(StorageBackend):
             (priority,)
         )
         total = cur.fetchone()['count']
-        
+
         cur.close()
         conn.close()
-        
+
         messages = []
         for r in rows:
             messages.append(
@@ -681,39 +681,39 @@ class PostgresStorage(StorageBackend):
 
     def list_classified_messages(self, limit: int = 100, offset: int = 0) -> tuple[List[MailMessage], int]:
         """List only classified messages (database-level filtering).
-        
+
         Returns a tuple of (messages, total_count).
         A message is classified if it has a latest_classification_id.
         """
         conn = self.connect()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        
+
         cur.execute(
             """
             SELECT m.*, c.labels as class_labels, c.priority as class_priority, c.summary as class_summary
             FROM messages m
             INNER JOIN classifications c ON m.latest_classification_id = c.id
             WHERE m.latest_classification_id IS NOT NULL
-            ORDER BY m.internal_date DESC 
+            ORDER BY m.internal_date DESC
             LIMIT %s OFFSET %s
             """,
             (limit, offset)
         )
         rows = cur.fetchall()
-        
+
         # Get total count
         cur.execute(
             """
             SELECT COUNT(*) as count
-            FROM messages 
+            FROM messages
             WHERE latest_classification_id IS NOT NULL
             """
         )
         total = cur.fetchone()['count']
-        
+
         cur.close()
         conn.close()
-        
+
         messages = []
         for r in rows:
             messages.append(
@@ -739,39 +739,145 @@ class PostgresStorage(StorageBackend):
 
     def list_unclassified_messages(self, limit: int = 100, offset: int = 0) -> tuple[List[MailMessage], int]:
         """List only unclassified messages (database-level filtering).
-        
+
         Returns a tuple of (messages, total_count).
         A message is unclassified if it has no latest_classification_id.
         """
         conn = self.connect()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        
+
         cur.execute(
             """
             SELECT m.*, c.labels as class_labels, c.priority as class_priority, c.summary as class_summary
             FROM messages m
             LEFT JOIN classifications c ON m.latest_classification_id = c.id
             WHERE m.latest_classification_id IS NULL
-            ORDER BY m.internal_date DESC 
+            ORDER BY m.internal_date DESC
             LIMIT %s OFFSET %s
             """,
             (limit, offset)
         )
         rows = cur.fetchall()
-        
+
         # Get total count
         cur.execute(
             """
             SELECT COUNT(*) as count
-            FROM messages 
+            FROM messages
             WHERE latest_classification_id IS NULL
             """
         )
         total = cur.fetchone()["count"]
-        
+
         cur.close()
         conn.close()
-        
+
+        messages = []
+        for r in rows:
+            messages.append(
+                MailMessage(
+                    id=r['id'],
+                    thread_id=r['thread_id'],
+                    from_=r['from_addr'],
+                    to=r['to_addr'],
+                    subject=r['subject'],
+                    snippet=r['snippet'],
+                    labels=r['labels'],
+                    internal_date=r['internal_date'],
+                    payload=r['payload'],
+                    raw=r['raw'],
+                    headers=r['headers'] or {},
+                    classification_labels=r['class_labels'],
+                    priority=r['class_priority'],
+                    summary=r['class_summary'],
+                    has_attachments=r['has_attachments'] or False,
+                )
+            )
+        return messages, total
+
+    def list_messages_by_filters(
+        self,
+        priority: Optional[str] = None,
+        labels: Optional[List[str]] = None,
+        classified: Optional[bool] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> tuple[List[MailMessage], int]:
+        """List messages with combined filters (database-level filtering).
+
+        Args:
+            priority: Filter by priority (e.g., "high", "medium", "low")
+            labels: Filter by labels - message must have ALL specified labels
+            classified: If True, only classified messages. If False, only unclassified. If None, all.
+            limit: Max messages to return
+            offset: Skip this many results
+
+        Returns a tuple of (messages, total_count).
+        Uses GIN index on classifications.labels and B-tree index on priority for fast filtering.
+        """
+        conn = self.connect()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Build WHERE clauses dynamically
+        where_clauses = []
+        params = []
+
+        # Classification filter
+        if classified is True:
+            where_clauses.append("m.latest_classification_id IS NOT NULL")
+        elif classified is False:
+            where_clauses.append("m.latest_classification_id IS NULL")
+
+        # Priority filter
+        if priority:
+            where_clauses.append("LOWER(c.priority) = LOWER(%s)")
+            params.append(priority)
+
+        # Labels filter - must have ALL specified labels (AND logic)
+        if labels:
+            for label in labels:
+                # Use JSONB containment operator @> for GIN index
+                where_clauses.append("c.labels @> %s::jsonb")
+                params.append(json.dumps([label]))
+
+        # Determine JOIN type
+        if classified is False or (classified is None and not priority and not labels):
+            # LEFT JOIN for unclassified or when no classification filters
+            join_type = "LEFT JOIN"
+        else:
+            # INNER JOIN when we need classification data
+            join_type = "INNER JOIN"
+
+        # Build WHERE clause
+        where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+        # Query with pagination
+        query = f"""
+            SELECT m.*, c.labels as class_labels, c.priority as class_priority, c.summary as class_summary
+            FROM messages m
+            {join_type} classifications c ON m.latest_classification_id = c.id
+            WHERE {where_sql}
+            ORDER BY m.internal_date DESC
+            LIMIT %s OFFSET %s
+        """
+        params.extend([limit, offset])
+
+        cur.execute(query, params)
+        rows = cur.fetchall()
+
+        # Get total count with same filters
+        count_query = f"""
+            SELECT COUNT(*) as count
+            FROM messages m
+            {join_type} classifications c ON m.latest_classification_id = c.id
+            WHERE {where_sql}
+        """
+        cur.execute(count_query, params[:-2])  # Exclude limit/offset
+        total = cur.fetchone()['count']
+
+        cur.close()
+        conn.close()
+
         messages = []
         for r in rows:
             messages.append(

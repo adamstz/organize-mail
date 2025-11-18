@@ -7,10 +7,13 @@ interface EmailToolbarProps {
   onSearchChange: (query: string) => void;
   sortOrder: 'recent' | 'oldest';
   onSortToggle: () => void;
-  classificationStatus: 'all' | 'classified' | 'unclassified';
+  filters: {
+    priority: string | null;
+    labels: string[];
+    status: 'all' | 'classified' | 'unclassified';
+  };
   onStatusChange: (_event: React.MouseEvent<HTMLElement>, newStatus: 'all' | 'classified' | 'unclassified' | null) => void;
-  filter: { type: 'priority' | 'label' | 'status' | null; value: string | null };
-  onClearFilter: () => void;
+  onClearAllFilters: () => void;
   onLabelFilter: (label: string) => void;
   onPriorityFilter: (priority: string) => void;
   selectedModel: string;
@@ -27,10 +30,9 @@ const EmailToolbar: React.FC<EmailToolbarProps> = ({
   onSearchChange,
   sortOrder,
   onSortToggle,
-  classificationStatus,
+  filters,
   onStatusChange,
-  filter,
-  onClearFilter,
+  onClearAllFilters,
   onLabelFilter,
   onPriorityFilter,
   selectedModel,
@@ -122,7 +124,7 @@ const EmailToolbar: React.FC<EmailToolbarProps> = ({
         />
         
         <ToggleButtonGroup
-          value={classificationStatus}
+          value={filters.status}
           exclusive
           onChange={onStatusChange}
           size="small"
@@ -144,35 +146,65 @@ const EmailToolbar: React.FC<EmailToolbarProps> = ({
           <Chip
             label="🔴 High"
             onClick={() => onPriorityFilter('high')}
-            variant={filter.type === 'priority' && filter.value === 'high' ? 'filled' : 'outlined'}
-            color={filter.type === 'priority' && filter.value === 'high' ? 'error' : 'default'}
+            variant={filters.priority === 'high' ? 'filled' : 'outlined'}
+            color={filters.priority === 'high' ? 'error' : 'default'}
             size="small"
             sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
           />
           <Chip
             label="🟡 Normal"
             onClick={() => onPriorityFilter('normal')}
-            variant={filter.type === 'priority' && filter.value === 'normal' ? 'filled' : 'outlined'}
-            color={filter.type === 'priority' && filter.value === 'normal' ? 'primary' : 'default'}
+            variant={filters.priority === 'normal' ? 'filled' : 'outlined'}
+            color={filters.priority === 'normal' ? 'primary' : 'default'}
             size="small"
             sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
           />
           <Chip
             label="🟢 Low"
             onClick={() => onPriorityFilter('low')}
-            variant={filter.type === 'priority' && filter.value === 'low' ? 'filled' : 'outlined'}
-            color={filter.type === 'priority' && filter.value === 'low' ? 'success' : 'default'}
+            variant={filters.priority === 'low' ? 'filled' : 'outlined'}
+            color={filters.priority === 'low' ? 'success' : 'default'}
             size="small"
             sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
           />
         </Box>
 
-        {filter.type && filter.value && filter.type !== 'status' && (
+        {filters.labels.length > 0 && (
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {filters.labels.map((label) => (
+              <Chip
+                key={label}
+                label={label}
+                onDelete={() => onLabelFilter(label)}
+                color="primary"
+                size="small"
+              />
+            ))}
+            {filters.labels.length > 1 && (
+              <Chip
+                label="Clear labels"
+                onClick={() => filters.labels.forEach(l => onLabelFilter(l))}
+                variant="outlined"
+                size="small"
+              />
+            )}
+          </Box>
+        )}
+        {filters.priority && (
           <Chip
-            label={`${filter.type}: ${filter.value}`}
-            onDelete={onClearFilter}
-            color="primary"
+            label={`Priority: ${filters.priority}`}
+            onDelete={() => onPriorityFilter(filters.priority!)}
+            color="secondary"
             variant="outlined"
+            size="small"
+          />
+        )}
+        {(filters.labels.length > 0 || filters.priority || filters.status !== 'all') && (
+          <Chip
+            label="Clear all filters"
+            onClick={onClearAllFilters}
+            variant="outlined"
+            color="default"
             size="small"
           />
         )}
@@ -190,20 +222,23 @@ const EmailToolbar: React.FC<EmailToolbarProps> = ({
               {labels
                 .sort((a, b) => b.count - a.count)
                 .slice(0, showAllLabels ? labels.length : MAX_VISIBLE_LABELS)
-                .map((label) => (
-                  <Chip
-                    key={label.name}
-                    label={`${label.name} (${label.count})`}
-                    onClick={() => onLabelFilter(label.name)}
-                    variant={filter.type === 'label' && filter.value === label.name ? 'filled' : 'outlined'}
-                    color={filter.type === 'label' && filter.value === label.name ? 'primary' : 'default'}
-                    size="small"
-                    sx={{ 
-                      cursor: 'pointer',
-                      '&:hover': { bgcolor: 'action.hover' }
-                    }}
-                  />
-                ))}
+                .map((label) => {
+                  const isSelected = filters.labels.includes(label.name);
+                  return (
+                    <Chip
+                      key={label.name}
+                      label={`${label.name} (${label.count})`}
+                      onClick={() => onLabelFilter(label.name)}
+                      variant={isSelected ? 'filled' : 'outlined'}
+                      color={isSelected ? 'primary' : 'default'}
+                      size="small"
+                      sx={{ 
+                        cursor: 'pointer',
+                        '&:hover': { bgcolor: 'action.hover' }
+                      }}
+                    />
+                  );
+                })}
               
               {/* Show expand/collapse button if there are more labels than MAX_VISIBLE_LABELS */}
               {labels.length > MAX_VISIBLE_LABELS && (

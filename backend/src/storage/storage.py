@@ -21,6 +21,7 @@ from ..models.message import MailMessage
 from .storage_interface import StorageBackend
 from .sqlite_storage import SQLiteStorage, default_db_path
 
+
 def storage_factory_from_env() -> StorageBackend:
     """Create a storage backend instance based on STORAGE_BACKEND env var.
 
@@ -28,9 +29,9 @@ def storage_factory_from_env() -> StorageBackend:
       - sqlite (requires explicit setting)
       - postgres (requires DATABASE_URL or DB_* env vars)
       - memory (requires explicit setting)
-    
+
     STORAGE_BACKEND must be explicitly set - no default is provided.
-    
+
     For postgres, you can either set DATABASE_URL directly, or use these individual vars:
       - DB_USER (or POSTGRES_USER for backwards compatibility)
       - DB_PASSWORD (or POSTGRES_PASSWORD)
@@ -44,7 +45,7 @@ def storage_factory_from_env() -> StorageBackend:
             "STORAGE_BACKEND environment variable is required. "
             "Set to 'sqlite', 'postgres', or 'memory'"
         )
-    
+
     mode = mode.lower()
     if mode == "memory" or mode == "inmemory":
         from .memory_storage import InMemoryStorage
@@ -122,7 +123,7 @@ def list_messages(limit: int = 100, offset: int = 0) -> List[MailMessage]:
 
 def create_classification(message_id: str, labels: List[str], priority: str, summary: str, model: str = None) -> str:
     """Create a new classification and link it to a message.
-    
+
     Returns the classification ID.
     """
     return get_storage_backend().create_classification(message_id, labels, priority, summary, model)
@@ -130,7 +131,7 @@ def create_classification(message_id: str, labels: List[str], priority: str, sum
 
 def get_latest_classification(message_id: str) -> Optional[dict]:
     """Get the most recent classification for a message.
-    
+
     Returns dict with: id, labels, priority, summary, model, created_at
     """
     return get_storage_backend().get_latest_classification(message_id)
@@ -177,7 +178,7 @@ def get_label_counts() -> dict:
 
 def list_messages_by_label(label: str, limit: int = 100, offset: int = 0) -> tuple[List[MailMessage], int]:
     """List messages filtered by classification label with database-level filtering.
-    
+
     Returns tuple of (messages, total_count).
     """
     return get_storage_backend().list_messages_by_label(label, limit=limit, offset=offset)
@@ -185,7 +186,7 @@ def list_messages_by_label(label: str, limit: int = 100, offset: int = 0) -> tup
 
 def list_messages_by_priority(priority: str, limit: int = 100, offset: int = 0) -> tuple[List[MailMessage], int]:
     """List messages filtered by priority with database-level filtering.
-    
+
     Returns tuple of (messages, total_count).
     """
     return get_storage_backend().list_messages_by_priority(priority, limit=limit, offset=offset)
@@ -193,7 +194,7 @@ def list_messages_by_priority(priority: str, limit: int = 100, offset: int = 0) 
 
 def list_classified_messages(limit: int = 100, offset: int = 0) -> tuple[List[MailMessage], int]:
     """List only classified messages with database-level filtering.
-    
+
     Returns tuple of (messages, total_count).
     """
     return get_storage_backend().list_classified_messages(limit=limit, offset=offset)
@@ -201,7 +202,34 @@ def list_classified_messages(limit: int = 100, offset: int = 0) -> tuple[List[Ma
 
 def list_unclassified_messages(limit: int = 100, offset: int = 0) -> tuple[List[MailMessage], int]:
     """List only unclassified messages with database-level filtering.
-    
+
     Returns tuple of (messages, total_count).
     """
     return get_storage_backend().list_unclassified_messages(limit=limit, offset=offset)
+
+
+def list_messages_by_filters(
+    priority: Optional[str] = None,
+    labels: Optional[List[str]] = None,
+    classified: Optional[bool] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> tuple[List[MailMessage], int]:
+    """List messages with combined filters using database-level filtering.
+
+    Args:
+        priority: Filter by priority (e.g., "high", "medium", "low")
+        labels: Filter by labels - message must have ALL specified labels
+        classified: If True, only classified messages. If False, only unclassified. If None, all.
+        limit: Max messages to return
+        offset: Skip this many results
+
+    Returns tuple of (messages, total_count).
+    """
+    return get_storage_backend().list_messages_by_filters(
+        priority=priority,
+        labels=labels,
+        classified=classified,
+        limit=limit,
+        offset=offset
+    )

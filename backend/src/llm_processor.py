@@ -15,7 +15,7 @@ Configuration via environment variables:
 - ORGANIZE_MAIL_LLM_CMD: External command to run (if using command provider)
 - LLM_MODEL: Model name (default: gpt-3.5-turbo for OpenAI, claude-3-haiku for Anthropic, llama3 for Ollama)
 """
-from typing import Any, Dict, Optional
+from typing import Dict
 import os
 import json
 import shlex
@@ -30,7 +30,7 @@ class LLMProcessor:
     TEMPERATURE = 0.3
     MAX_TOKENS = 200
     TIMEOUT = 60  # Increased for slower local models
-    
+
     def __init__(self, config: Dict | None = None):
         self.config = config or {}
         self.provider = self._detect_provider()
@@ -39,15 +39,15 @@ class LLMProcessor:
     def _detect_provider(self) -> str:
         """Auto-detect which LLM provider to use based on env vars."""
         provider = os.environ.get("LLM_PROVIDER", "").lower()
-        
+
         # If explicitly set to rules (for testing), allow it
         if provider == "rules":
             return provider
-        
+
         # Check for explicit provider setting
         if provider in ("openai", "anthropic", "ollama", "command"):
             return provider
-        
+
         # Auto-detect based on available API keys or running services
         if os.environ.get("OPENAI_API_KEY"):
             return "openai"
@@ -57,7 +57,7 @@ class LLMProcessor:
             return "ollama"
         if os.environ.get("ORGANIZE_MAIL_LLM_CMD"):
             return "command"
-        
+
         # No LLM provider available - raise error
         raise RuntimeError(
             "No LLM provider configured. Please set one of:\n"
@@ -83,7 +83,7 @@ class LLMProcessor:
         model = os.environ.get("LLM_MODEL")
         if model:
             return model
-        
+
         # Provider defaults
         if self.provider == "openai":
             return "gpt-3.5-turbo"
@@ -91,7 +91,7 @@ class LLMProcessor:
             return "claude-3-haiku-20240307"
         elif self.provider == "ollama":
             return "llama3"
-        
+
         return ""
 
     def categorize_message(self, subject: str, body: str) -> Dict:
@@ -102,14 +102,14 @@ class LLMProcessor:
         # Use rule-based for rules provider
         if self.provider == "rules":
             return self._rule_based(subject, body)
-        
+
         # For non-rules providers, don't fall back - let the error propagate
         return self._categorize_with_llm(subject, body)
 
     def _categorize_with_llm(self, subject: str, body: str) -> Dict:
         """Common LLM categorization flow: build prompt → call provider → parse response."""
         prompt = self._build_classification_prompt(subject, body)
-        
+
         # Get raw LLM response based on provider
         if self.provider == "openai":
             content = self._call_openai(prompt)
@@ -121,7 +121,7 @@ class LLMProcessor:
             content = self._call_command(subject, body)  # command uses different input format
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
-        
+
         # Parse the response into our standard format
         return self._parse_llm_response(content)
 
@@ -131,11 +131,11 @@ class LLMProcessor:
             import openai
         except ImportError:
             raise ImportError("openai package not installed. Run: pip install openai")
-        
+
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OPENAI_API_KEY not set")
-        
+
         client = openai.OpenAI(api_key=api_key)
         response = client.chat.completions.create(
             model=self.model,
@@ -154,11 +154,11 @@ class LLMProcessor:
             import anthropic
         except ImportError:
             raise ImportError("anthropic package not installed. Run: pip install anthropic")
-        
+
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY not set")
-        
+
         client = anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
             model=self.model,
@@ -173,7 +173,7 @@ class LLMProcessor:
     def _call_ollama(self, prompt: str) -> str:
         """Call Ollama API and return raw response text."""
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-        
+
         payload = {
             "model": self.model,
             "messages": [
@@ -187,7 +187,7 @@ class LLMProcessor:
                 "num_predict": self.MAX_TOKENS,
             }
         }
-        
+
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
             f"{host}/api/chat",
@@ -195,36 +195,35 @@ class LLMProcessor:
             headers={"Content-Type": "application/json"},
             method="POST"
         )
-        
+
         with urllib.request.urlopen(req, timeout=self.TIMEOUT) as response:
             result = json.load(response)
             return result.get("message", {}).get("content", "")
 
     def _call_command(self, subject: str, body: str) -> str:
         """Call external command and return raw response text.
-        
+
         Note: Command provider uses different input format (subject/body dict)
         rather than pre-built prompt, so it returns JSON directly.
         """
         cmd = os.environ.get("ORGANIZE_MAIL_LLM_CMD")
         if not cmd:
             raise ValueError("ORGANIZE_MAIL_LLM_CMD not set")
-        
+
         inp = json.dumps({"subject": subject, "body": body}, ensure_ascii=False).encode("utf-8")
         args = shlex.split(cmd)
         proc = subprocess.run(args, input=inp, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=self.TIMEOUT)
-        
+
         if proc.returncode != 0:
             raise RuntimeError(f"Command failed with exit code {proc.returncode}")
-        
-        return proc.stdout.decode("utf-8").strip()
 
+        return proc.stdout.decode("utf-8").strip()
 
     def _build_classification_prompt(self, subject: str, body: str) -> str:
         """Build a structured prompt for LLM classification."""
         # Truncate body to avoid token limits
         body_truncated = body[:2000] if body else ""
-        
+
         return f"""Classify this email into categories, assign a priority level, and provide a brief summary.
 
 Email to classify:
@@ -233,7 +232,11 @@ Body: {body_truncated}
 
 Instructions:
 - You MUST ONLY choose labels from this exact list (do not create new labels):
-  finance, banking, investments, security, authentication, meetings, appointments, personal, work, career, shopping, social, entertainment, news, newsletters, promotions, marketing, spam, travel, health, education, legal, taxes, receipts, notifications, updates, alerts, support, bills, insurance, job-application, job-interview, job-offer, job-rejection, job-ad, job-followup
+  finance, banking, investments, security, authentication, meetings, appointments,
+  personal, work, career, shopping, social, entertainment, news, newsletters,
+  promotions, marketing, spam, travel, health, education, legal, taxes, receipts,
+  notifications, updates, alerts, support, bills, insurance, job-application,
+  job-interview, job-offer, job-rejection, job-ad, job-followup
 - For job-related emails, use specific job labels:
   * job-application: confirmation that you applied for a job
   * job-interview: interview invitations or scheduling
@@ -268,27 +271,29 @@ Do not include explanations or markdown. Only output valid JSON. Do not invent l
             content = content.split("```json")[1].split("```")[0].strip()
         elif "```" in content:
             content = content.split("```")[1].split("```")[0].strip()
-        
+
         result = json.loads(content)
-        
+
         # Handle common LLM variations
         # 1. "label" (singular) instead of "labels" (plural)
         if "label" in result and "labels" not in result:
             label_value = result["label"]
             # Check if it's a comma-separated string
             if isinstance(label_value, str):
-                result["labels"] = [l.strip() for l in label_value.split(",") if l.strip()]
+                result["labels"] = [
+                    label.strip() for label in label_value.split(",") if label.strip()
+                ]
             else:
                 result["labels"] = [label_value] if label_value else []
             del result["label"]
-        
+
         # 2. Ensure labels is a list
         if "labels" not in result:
             result["labels"] = []
         elif not isinstance(result["labels"], list):
             # Convert single string to list
             result["labels"] = [result["labels"]] if result["labels"] else []
-        
+
         # 3. Filter labels to only allowed ones (normalize to lowercase)
         if result.get("labels"):
             normalized_labels = []
@@ -297,25 +302,25 @@ Do not include explanations or markdown. Only output valid JSON. Do not invent l
                 if label_lower in self.ALLOWED_LABELS:
                     normalized_labels.append(label_lower)
             result["labels"] = normalized_labels
-        
+
         # 4. Ensure priority exists and is valid
         if "priority" not in result:
             result["priority"] = "normal"
-        
+
         # Normalize priority to lowercase
         if isinstance(result.get("priority"), str):
             result["priority"] = result["priority"].lower()
             if result["priority"] not in ("high", "normal", "low"):
                 result["priority"] = "normal"
-        
+
         # 5. Ensure summary exists
         if "summary" not in result:
             result["summary"] = ""
-        
+
         # Ensure summary is a string
         if not isinstance(result.get("summary"), str):
             result["summary"] = str(result.get("summary", ""))
-        
+
         return result
 
     def _rule_based(self, subject: str, body: str) -> Dict:
@@ -338,7 +343,7 @@ Do not include explanations or markdown. Only output valid JSON. Do not invent l
             priority = "high"
         if any(k in text_lower for k in ["meeting", "schedule", "calendar"]):
             labels.append("meetings")
-        
+
         # Job-related keywords
         if any(k in text_lower for k in ["thank you for applying", "application received", "applied for"]):
             labels.append("job-application")
@@ -356,4 +361,3 @@ Do not include explanations or markdown. Only output valid JSON. Do not invent l
         summary = subject[:100] if subject else "No subject"
 
         return {"labels": labels, "priority": priority, "summary": summary}
-

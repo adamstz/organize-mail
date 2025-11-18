@@ -8,6 +8,9 @@ import {
   Box,
   Chip,
   CircularProgress,
+  Snackbar,
+  Alert,
+  Tooltip,
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
@@ -43,26 +46,83 @@ interface EmailItemProps {
 
 const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDelete, onReclassify, selectedModel = 'gemma:2b' }) => {
   const [isReclassifying, setIsReclassifying] = useState(false);
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+    severity: 'success' | 'error' | 'warning' | 'info';
+  }>({
+    open: false,
+    message: '',
+    severity: 'info',
+  });
+
+  const handleCloseSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
+  };
+
+  const showMessage = (message: string, severity: 'success' | 'error' | 'warning' | 'info') => {
+    setSnackbar({ open: true, message, severity });
+  };
 
   const handleReclassify = async () => {
+    // Check if model is selected
+    if (!selectedModel || selectedModel.trim() === '') {
+      showMessage('Please select an LLM model first', 'warning');
+      return;
+    }
+
     setIsReclassifying(true);
+    showMessage('Classifying message...', 'info');
     
     try {
-      const response = await fetch(`http://localhost:8000/messages/${email.id}/reclassify`, {
+      const response = await fetch(`/messages/${email.id}/reclassify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: selectedModel })
       });
       
       if (response.ok) {
-        // Trigger parent refresh
-        if (onReclassify) {
-          onReclassify(email.id);
-        }
+        const result = await response.json();
+        showMessage(`Successfully classified! Priority: ${result.priority || 'N/A'}`, 'success');
+        
+        // Trigger parent refresh after a short delay to show success message
+        setTimeout(() => {
+          if (onReclassify) {
+            onReclassify(email.id);
+          }
+        }, 1000);
       } else {
-        console.error('Reclassification failed:', await response.text());
+        const errorText = await response.text();
+        let errorMessage = 'Classification failed';
+        
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.detail) {
+            errorMessage = errorJson.detail;
+          }
+        } catch {
+          // If not JSON, use the text directly if it's not too long
+          if (errorText.length < 100) {
+            errorMessage = errorText;
+          }
+        }
+        
+        // Check for common errors
+        if (response.status === 503 || errorMessage.includes('LLM') || errorMessage.includes('provider')) {
+          showMessage('LLM service is not available. Please ensure your LLM server is running.', 'error');
+        } else if (response.status === 404) {
+          showMessage('Message not found', 'error');
+        } else {
+          showMessage(errorMessage, 'error');
+        }
       }
     } catch (error) {
+      // Network or connection error
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        showMessage('Cannot connect to backend server. Please ensure the API is running.', 'error');
+      } else {
+        showMessage('An unexpected error occurred during classification', 'error');
+      }
       console.error('Reclassification error:', error);
     } finally {
       setIsReclassifying(false);
@@ -142,18 +202,22 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
           </Box>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <IconButton
-            size="small"
-            aria-label="reclassify"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleReclassify();
-            }}
-            disabled={isReclassifying}
-            sx={{ color: 'primary.main' }}
-          >
-            {isReclassifying ? <CircularProgress size={20} /> : <RefreshIcon />}
-          </IconButton>
+          <Tooltip title={isReclassifying ? 'Classifying...' : `Classify with ${selectedModel}`}>
+            <span>
+              <IconButton
+                size="small"
+                aria-label="reclassify"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleReclassify();
+                }}
+                disabled={isReclassifying}
+                sx={{ color: 'primary.main' }}
+              >
+                {isReclassifying ? <CircularProgress size={20} /> : <RefreshIcon />}
+              </IconButton>
+            </span>
+          </Tooltip>
           <IconButton
             edge="end"
             aria-label="delete"
@@ -197,6 +261,17 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
           </Box>
         </Box>
       </Collapse>
+      
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </React.Fragment>
   );
 };

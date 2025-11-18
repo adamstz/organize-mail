@@ -30,7 +30,7 @@ def build_credentials_from_oauth(
     scopes: Iterable[str] = DEFAULT_GMAIL_SCOPES,
 ) -> OAuthCredentials:
     """Build OAuth2 credentials from client ID, secret, and refresh token.
-    
+
     Use this when you have OAuth credentials (e.g., from Codespace secrets)
     instead of service account credentials.
     """
@@ -42,7 +42,7 @@ def build_credentials_from_oauth(
         client_secret=client_secret,
         scopes=list(scopes),
     )
-    
+
 
 def build_gmail_service(
     credentials: Credentials | None = None,

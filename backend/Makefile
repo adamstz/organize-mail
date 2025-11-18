@@ -1,4 +1,4 @@
-.PHONY: help test test-all test-unit test-smoke test-llm test-storage test-jobs test-api test-cov lint format clean classify classify-force pull-inbox run
+.PHONY: help test test-all test-unit test-smoke test-llm test-storage test-jobs test-api test-cov lint lint-fix format clean classify classify-force pull-inbox run
 
 # Python virtual environment
 VENV_PATH = ../.venv
@@ -32,7 +32,7 @@ help:
 	@echo "  make pull-inbox     - Pull all messages from Gmail INBOX to database"
 
 # Run all tests
-test:
+test: lint
 	LLM_PROVIDER=rules PYTHONPATH=. $(PYTEST) tests/ -v
 
 # Run all tests with extra verbosity
@@ -71,7 +71,13 @@ test-cov:
 # Run linter
 lint:
 	$(PYTHON) -m flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
-	$(PYTHON) -m flake8 src/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+	$(PYTHON) -m flake8 src/ --count --exit-zero --max-complexity=25 --max-line-length=135 --ignore=W391,F541,W503,W504 --statistics
+
+# Auto-fix common linting issues
+lint-fix:
+	@echo "Fixing trailing whitespace..."
+	find src/ -type f -name "*.py" -exec sed -i 's/[[:space:]]*$$//' {} +
+	@echo "Done! Run 'make lint' to check remaining issues."
 
 # Format code (requires black)
 format:
