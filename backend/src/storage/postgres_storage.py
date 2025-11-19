@@ -795,6 +795,108 @@ class PostgresStorage(StorageBackend):
             )
         return messages, total
 
+    def similarity_search(
+        self,
+        query_embedding: List[float],
+        limit: int = 5,
+        threshold: float = 0.0
+    ) -> List[tuple[MailMessage, float]]:
+        """Search for similar messages using vector similarity.
+        
+        Uses cosine distance with pgvector (<=> operator).
+        Lower distance = more similar (0.0 = identical, 2.0 = opposite)
+        
+        Args:
+            query_embedding: The embedding vector to search for
+            limit: Maximum number of results
+            threshold: Minimum similarity threshold (0.0-1.0, where 1.0 is most similar)
+        
+        Returns:
+            List of (message, similarity_score) tuples, ordered by similarity
+        """
+        conn = self.connect()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Convert similarity threshold to distance threshold
+        # Cosine similarity = 1 - cosine distance
+        # So if threshold is 0.7 similarity, distance must be <= 0.3
+        distance_threshold = 1.0 - threshold
+        
+        # Search both messages table and chunks table, union the results
+        query = """
+            WITH email_scores AS (
+                -- Search single embeddings
+                SELECT 
+                    m.id,
+                    1 - (m.embedding <=> %s::vector) as similarity,
+                    'single' as source
+                FROM messages m
+                WHERE m.embedding IS NOT NULL
+                    AND (1 - (m.embedding <=> %s::vector)) >= %s
+                
+                UNION ALL
+                
+                -- Search chunked emails
+                SELECT 
+                    ec.message_id as id,
+                    MAX(1 - (ec.embedding <=> %s::vector)) as similarity,
+                    'chunks' as source
+                FROM email_chunks ec
+                WHERE (1 - (ec.embedding <=> %s::vector)) >= %s
+                GROUP BY ec.message_id
+            )
+            SELECT DISTINCT ON (es.id)
+                m.*, 
+                c.labels as class_labels, 
+                c.priority as class_priority, 
+                c.summary as class_summary,
+                es.similarity
+            FROM email_scores es
+            JOIN messages m ON m.id = es.id
+            LEFT JOIN classifications c ON m.latest_classification_id = c.id
+            ORDER BY es.id, es.similarity DESC
+            LIMIT %s
+        """
+        
+        # Execute with same embedding for all placeholders
+        cur.execute(
+            query,
+            (
+                query_embedding, query_embedding, threshold,  # single embeddings
+                query_embedding, query_embedding, threshold,  # chunks
+                limit
+            )
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        results = []
+        for r in rows:
+            message = MailMessage(
+                id=r['id'],
+                thread_id=r['thread_id'],
+                from_=r['from_addr'],
+                to=r['to_addr'],
+                subject=r['subject'],
+                snippet=r['snippet'],
+                labels=r['labels'],
+                internal_date=r['internal_date'],
+                payload=r['payload'],
+                raw=r['raw'],
+                headers=r['headers'] or {},
+                classification_labels=r['class_labels'],
+                priority=r['class_priority'],
+                summary=r['class_summary'],
+                has_attachments=r['has_attachments'] or False,
+            )
+            similarity = float(r['similarity'])
+            results.append((message, similarity))
+        
+        # Sort by similarity descending
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:limit]
+
     def list_messages_by_filters(
         self,
         priority: Optional[str] = None,

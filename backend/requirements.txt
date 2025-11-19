@@ -10,3 +10,7 @@ psycopg2-binary>=2.9.0  # PostgreSQL adapter
 # LLM providers (optional - install what you need)
 openai>=1.0.0
 anthropic>=0.18.0
+
+# RAG and embeddings
+sentence-transformers>=2.2.0  # Local embedding models
+pgvector>=0.2.0  # PostgreSQL vector extension Python client
