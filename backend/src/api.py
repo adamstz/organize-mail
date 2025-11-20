@@ -5,6 +5,8 @@ from pydantic import BaseModel
 
 from . import storage
 from .llm_processor import LLMProcessor
+from .embedding_service import EmbeddingService
+from .rag_engine import RAGQueryEngine
 
 app = FastAPI(title="organize-mail backend")
 
@@ -490,3 +492,139 @@ async def reclassify_message(message_id: str, request: ReclassifyRequest) -> dic
     except Exception as e:
         logger.error(f"[RECLASSIFY] Error during reclassification: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Reclassification failed: {str(e)}")
+
+
+# ==================== RAG ENDPOINTS ====================
+
+# Lazy initialization of RAG components
+_rag_engine: Optional[RAGQueryEngine] = None
+
+def get_rag_engine() -> RAGQueryEngine:
+    """Get or initialize the RAG query engine."""
+    global _rag_engine
+    if _rag_engine is None:
+        from .storage.storage import get_storage_backend
+        storage_backend = get_storage_backend()
+        embedder = EmbeddingService()
+        llm = LLMProcessor()
+        _rag_engine = RAGQueryEngine(storage_backend, embedder, llm)
+    return _rag_engine
+
+
+class QueryRequest(BaseModel):
+    """Request model for RAG queries."""
+    question: str
+    top_k: Optional[int] = 5
+    similarity_threshold: Optional[float] = 0.5
+
+
+@app.post("/api/query")
+async def query_emails(request: QueryRequest) -> dict:
+    """Ask a question and get an answer based on email content.
+    
+    This uses RAG (Retrieval-Augmented Generation):
+    1. Converts your question to a vector embedding
+    2. Finds the most similar emails
+    3. Uses an LLM to answer based on those emails
+    
+    Example request:
+    {
+        "question": "What invoices did I receive last month?",
+        "top_k": 5,
+        "similarity_threshold": 0.5
+    }
+    """
+    import logging
+    logger = logging.getLogger("uvicorn")
+    
+    logger.info(f"[RAG QUERY] Question: {request.question}")
+    
+    try:
+        rag_engine = get_rag_engine()
+        result = rag_engine.query(
+            question=request.question,
+            top_k=request.top_k,
+            similarity_threshold=request.similarity_threshold
+        )
+        
+        logger.info(f"[RAG QUERY] Answer generated with {len(result['sources'])} sources, confidence: {result['confidence']}")
+        
+        return result
+    
+    except Exception as e:
+        logger.error(f"[RAG QUERY] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
+
+@app.get("/api/similar/{message_id}")
+async def find_similar(message_id: str, limit: int = 5) -> dict:
+    """Find emails similar to a given email.
+    
+    Uses vector similarity to find semantically similar emails.
+    Useful for finding related conversations or duplicate emails.
+    """
+    import logging
+    logger = logging.getLogger("uvicorn")
+    
+    logger.info(f"[SIMILAR] Finding similar emails to {message_id}, limit={limit}")
+    
+    try:
+        rag_engine = get_rag_engine()
+        similar = rag_engine.find_similar_emails(message_id, limit=limit)
+        
+        logger.info(f"[SIMILAR] Found {len(similar)} similar emails")
+        
+        return {
+            "message_id": message_id,
+            "similar_emails": similar
+        }
+    
+    except Exception as e:
+        logger.error(f"[SIMILAR] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Similarity search failed: {str(e)}")
+
+
+@app.get("/api/embedding_status")
+async def embedding_status() -> dict:
+    """Get statistics about embedding coverage.
+    
+    Returns how many emails have been embedded and are ready for semantic search.
+    """
+    from .storage.storage import get_storage_backend
+    
+    backend = get_storage_backend()
+    conn = backend.connect()
+    cur = conn.cursor()
+    
+    # Count embedded messages
+    cur.execute("""
+        SELECT 
+            COUNT(*) as total,
+            COUNT(*) FILTER (WHERE embedding IS NOT NULL) as single_embeddings,
+            COUNT(*) FILTER (WHERE embedding_model IS NOT NULL AND embedding IS NULL) as chunked_embeddings
+        FROM messages
+    """)
+    row = cur.fetchone()
+    
+    # Count chunks
+    cur.execute("SELECT COUNT(*) as chunk_count FROM email_chunks")
+    chunk_row = cur.fetchone()
+    
+    cur.close()
+    conn.close()
+    
+    total = row[0]
+    single = row[1]
+    chunked = row[2]
+    embedded = single + chunked
+    chunks = chunk_row[0]
+    
+    return {
+        "total_messages": total,
+        "embedded_messages": embedded,
+        "single_embeddings": single,
+        "chunked_emails": chunked,
+        "total_chunks": chunks,
+        "coverage_percent": round((embedded / total * 100) if total > 0 else 0, 1),
+        "ready_for_search": embedded > 0
+    }

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { ThemeProvider, CssBaseline, Container, AppBar, Toolbar, Typography, Box } from '@mui/material';
+import { ThemeProvider, CssBaseline, Container, AppBar, Toolbar, Typography, Box, Grid } from '@mui/material';
 import { createTheme } from '@mui/material/styles';
 import EmailList from './components/EmailList';
 import EmailToolbar from './components/EmailToolbar';
+import ChatInterface from './components/ChatInterface';
 
 const theme = createTheme({
   palette: {
@@ -75,31 +76,63 @@ const App: React.FC = () => {
         maxWidth={false} 
         disableGutters 
         sx={{ 
-          height: '100vh',
+          height: 'calc(100vh - 64px)', // Subtract AppBar height
           width: '100vw',
           bgcolor: 'grey.100',
           display: 'flex',
-          flexDirection: 'column',
-          p: 0
+          p: 0,
+          overflow: 'hidden'
         }}
       >
-        <Box sx={{ p: 2, flexGrow: 1, overflow: 'auto' }}>
-          <EmailToolbar
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            sortOrder={sortOrder}
-            onSortToggle={toggleSortOrder}
-            filters={filters}
-            onStatusChange={handleStatusChange}
-            onClearAllFilters={clearAllFilters}
-            onLabelFilter={handleLabelFilter}
-            onPriorityFilter={handlePriorityFilter}
-            selectedModel={selectedModel}
-            onModelChange={setSelectedModel}
-          />
+        <Grid container sx={{ height: '100%', overflow: 'hidden' }}>
+          {/* Email List Section - Left Side */}
+          <Grid 
+            item 
+            xs={12} 
+            md={7} 
+            sx={{ 
+              height: '100%',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              borderRight: { md: 1 },
+              borderColor: { md: 'divider' }
+            }}
+          >
+            <Box sx={{ p: 2, flexGrow: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+              <EmailToolbar
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                sortOrder={sortOrder}
+                onSortToggle={toggleSortOrder}
+                filters={filters}
+                onStatusChange={handleStatusChange}
+                onClearAllFilters={clearAllFilters}
+                onLabelFilter={handleLabelFilter}
+                onPriorityFilter={handlePriorityFilter}
+                selectedModel={selectedModel}
+                onModelChange={setSelectedModel}
+              />
 
-          <EmailList filters={filters} searchQuery={searchQuery} sortOrder={sortOrder} selectedModel={selectedModel} />
-        </Box>
+              <EmailList filters={filters} searchQuery={searchQuery} sortOrder={sortOrder} selectedModel={selectedModel} />
+            </Box>
+          </Grid>
+
+          {/* Chat Interface Section - Right Side */}
+          <Grid 
+            item 
+            xs={12} 
+            md={5} 
+            sx={{ 
+              height: '100%',
+              overflow: 'hidden',
+              bgcolor: 'background.default',
+              display: { xs: 'none', md: 'block' } // Hide on mobile, show on tablet and up
+            }}
+          >
+            <ChatInterface />
+          </Grid>
+        </Grid>
       </Container>
     </ThemeProvider>
   );

@@ -39,7 +39,7 @@ class PostgresStorage(StorageBackend):
         conn = self.connect()
         cur = conn.cursor()
 
-        # Messages table
+        # Messages table (includes vector embedding columns for RAG)
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS messages (
@@ -56,7 +56,10 @@ class PostgresStorage(StorageBackend):
                 headers JSONB,
                 fetched_at TIMESTAMP WITH TIME ZONE,
                 has_attachments BOOLEAN DEFAULT FALSE,
-                latest_classification_id TEXT
+                latest_classification_id TEXT,
+                embedding vector(384),
+                embedding_model TEXT,
+                embedded_at TIMESTAMP WITH TIME ZONE
             )
             """
         )
@@ -83,6 +86,21 @@ class PostgresStorage(StorageBackend):
                 model TEXT,
                 created_at TIMESTAMP WITH TIME ZONE NOT NULL,
                 FOREIGN KEY(message_id) REFERENCES messages(id)
+            )
+            """
+        )
+
+        # Email chunks table for long emails (RAG support)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS email_chunks (
+                id TEXT PRIMARY KEY,
+                message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+                chunk_index INTEGER NOT NULL,
+                chunk_text TEXT NOT NULL,
+                embedding vector(384),
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                UNIQUE(message_id, chunk_index)
             )
             """
         )
@@ -128,6 +146,40 @@ class PostgresStorage(StorageBackend):
             """
             CREATE INDEX IF NOT EXISTS idx_messages_latest_classification
             ON messages(latest_classification_id) WHERE latest_classification_id IS NOT NULL
+            """
+        )
+
+        # Create HNSW indexes for vector similarity search (RAG support)
+        # HNSW = Hierarchical Navigable Small World (fast approximate nearest neighbor)
+        # vector_cosine_ops = use cosine distance for similarity
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_messages_embedding_hnsw
+            ON messages USING hnsw (embedding vector_cosine_ops)
+            WHERE embedding IS NOT NULL
+            """
+        )
+        
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_email_chunks_embedding_hnsw
+            ON email_chunks USING hnsw (embedding vector_cosine_ops)
+            """
+        )
+        
+        # Index for looking up chunks by message_id
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_email_chunks_message_id
+            ON email_chunks(message_id)
+            """
+        )
+        
+        # Index for sorting chunks by position
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_email_chunks_chunk_index
+            ON email_chunks(message_id, chunk_index)
             """
         )
 

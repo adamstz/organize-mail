@@ -1,53 +1,77 @@
-# backend
+# Organize Mail - Backend
 
-Python backend using FastAPI. Responsible for:
+Backend for ingesting, storing, and classifying email. Supports RAG (retrieval-augmented
+generation) workflows via local embeddings and pluggable LLM providers.
 
-- Receiving Pub/Sub push messages (or running a subscriber) for Gmail notifications
-- Fetching messages via Gmail API
-- Passing message content to local LLM processor for categorization and enrichment
-- Exposing REST endpoints for the frontend
+## Quick Start (local)
 
-See `pyproject.toml`, `requirements.txt`, and module stubs.
+1. Create and activate a virtualenv:
 
-## Quick Start
+	```bash
+	python -m venv .venv
+	source .venv/bin/activate
+	pip install -r requirements.txt
+	```
 
-### 1. Pull Messages from Gmail
-```bash
-# Set up Gmail API credentials first:
-export GOOGLE_CLIENT_ID="your-client-id"
-export GOOGLE_CLIENT_SECRET="your-client-secret"
-export GOOGLE_REFRESH="your-refresh-token"
+2. Initialize storage (SQLite is default):
 
-# Pull all messages from INBOX
-make pull-inbox
+	- For SQLite nothing else is required.
+	- For Postgres: ensure `PG*` env vars are set and run migrations.
 
-# Or with custom options:
-python pull_inbox.py --limit 100 --workers 8
-```
+3. (Optional) Embed your emails:
 
-### 2. Classify Messages
-```bash
-### 2. Classify Messages
-```bash
-make classify          # Classify unclassified messages
-make classify-force    # Re-classify all messages
+	```bash
+	python src/jobs/embed_all_emails.py
+	```
 
-# Or use the script directly:
-python classify_all.py --help
-python classify_all.py --limit 10    # Test with 10 messages
-```
+4. Run the API (development):
 
-### 3. Generate Embeddings (for semantic search)
-```bash
-python src/jobs/embed_all_emails.py
-```
+	```bash
+	uvicorn src.api:app --reload
+	```
 
-**Performance:** ~40-50 emails/second with batch processing
+5. Run the tests:
 
-### 4. Running Tests
-```bash
-make test              # Run all tests
-make test-smoke        # Run smoke tests only
+	```bash
+	pytest -q
+	# or
+	make test
+	```
+
+## Examples / Test Harnesses
+
+- `backend/tests/test_rag.py`: end-to-end RAG checks (embedding status, semantic search,
+  RAG Q&A, find-similar). Run directly to validate your local RAG setup.
+- `backend/tests/test_llm_providers.py`: quick connectivity checks for Ollama / OpenAI / Anthropic.
+
+## LLM Providers (Quick Reference)
+
+Supported providers: Ollama (local), OpenAI, Anthropic. Provider selection is
+configured via environment variables or the settings module.
+
+- Ollama (recommended for local testing):
+  - Run Ollama locally and point `OLLAMA_HOST` (default `http://localhost:11434`).
+  - No cloud API keys required. Fast for small local models.
+
+- OpenAI:
+  - Set `OPENAI_API_KEY`.
+  - Use for higher-quality models hosted by OpenAI.
+
+- Anthropic:
+  - Set `ANTHROPIC_API_KEY`.
+  - Compatible provider implementation is included.
+
+## Storage Backends
+
+- SQLite (default): good for development and small datasets.
+- Postgres + `pgvector`: recommended for production-scale vector storage and fast similarity search.
+
+## Notes
+
+- If embeddings are missing, run `python src/jobs/embed_all_emails.py`.
+- For Postgres ensure the `email_chunks` migration has been applied and `pgvector` is installed.
+
+
 make test-cov          # Run tests with coverage
 ```
 
