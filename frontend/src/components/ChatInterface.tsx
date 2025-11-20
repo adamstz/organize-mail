@@ -15,6 +15,7 @@ import {
 } from '@mui/icons-material';
 import ChatMessage from './ChatMessage';
 import { ChatMessage as ChatMessageType, SourceEmail } from '../types/chat';
+import { logger } from '../utils/logger';
 
 const ChatInterface: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
@@ -44,6 +45,8 @@ const ChatInterface: React.FC = () => {
     setInputValue('');
     setIsLoading(true);
 
+    logger.info(`Sending chat query: ${inputValue}`);
+
     try {
       // Create AbortController with 5 minute timeout for LLM processing
       const controller = new AbortController();
@@ -69,6 +72,8 @@ const ChatInterface: React.FC = () => {
       }
 
       const data = await response.json();
+
+      logger.info(`Chat query successful: ${data.sources?.length || 0} sources, confidence: ${data.confidence}`);
 
       const sources: SourceEmail[] = data.sources?.map((source: any) => ({
         message_id: source.message_id,

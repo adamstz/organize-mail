@@ -11,6 +11,7 @@ import { Email } from '../types/email';
 import EmailItem from './EmailItem';
 import { parseBackendMessage } from '../utils/emailParser';
 import exampleEmails from '../test/exampleEmails';
+import { logger } from '../utils/logger';
 
 interface EmailListProps {
   filters?: {
@@ -51,6 +52,8 @@ const EmailList: React.FC<EmailListProps> = ({ filters, searchQuery = '', sortOr
         const offset = (page - 1) * pageSize; // Convert 1-indexed page to 0-indexed offset
         let url = `/messages?limit=${pageSize}&offset=${offset}`;
         
+        logger.info(`Loading emails: page=${page}, offset=${offset}`);
+        
         // Determine which endpoint to use based on filters
         if (filters) {
           const hasMultipleFilters = 
@@ -87,6 +90,7 @@ const EmailList: React.FC<EmailListProps> = ({ filters, searchQuery = '', sortOr
           }
         }
         
+        logger.debug(`Fetching: ${url}`);
         const res = await fetch(url, { signal: abortController.signal });
         
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -102,10 +106,12 @@ const EmailList: React.FC<EmailListProps> = ({ filters, searchQuery = '', sortOr
           if (parsed && typeof parsed === 'object' && 'data' in parsed && 'total' in parsed) {
             data = parsed.data;
             setTotalCount(parsed.total);
+            logger.info(`Loaded ${data.length} emails (total: ${parsed.total})`);
           } else if (Array.isArray(parsed)) {
             // Fallback for old format (direct array)
             data = parsed;
             setTotalCount(parsed.length);
+            logger.info(`Loaded ${data.length} emails`);
           }
         } else {
           // backend not available or returned HTML (e.g. index.html) — handle gracefully
@@ -147,9 +153,12 @@ const EmailList: React.FC<EmailListProps> = ({ filters, searchQuery = '', sortOr
       } catch (err) {
         // Ignore abort errors - these are expected when filters change
         if (err instanceof Error && err.name === 'AbortError') {
+          logger.debug('Request aborted (expected)');
           return;
         }
-        setError(err instanceof Error ? err.message : String(err));
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        logger.error(`Failed to load emails: ${errorMsg}`);
+        setError(errorMsg);
         setEmails(exampleEmails);
       } finally {
         // Only clear loading if this request wasn't aborted

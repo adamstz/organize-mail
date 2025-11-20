@@ -1,7 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from pydantic import BaseModel
+import logging
+import asyncio
+from collections import deque
+import json
+from datetime import datetime
 
 from . import storage
 from .llm_processor import LLMProcessor
@@ -19,10 +24,134 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Log buffer for real-time viewing
+log_buffer = deque(maxlen=500)
+log_subscribers: List[WebSocket] = []
+
+class LogBufferHandler(logging.Handler):
+    """Custom logging handler that stores logs in memory and broadcasts to WebSocket clients."""
+    
+    def emit(self, record):
+        try:
+            log_entry = {
+                "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": self.format(record)
+            }
+            log_buffer.append(log_entry)
+            
+            # Broadcast to all connected WebSocket clients
+            disconnected = []
+            for ws in log_subscribers:
+                try:
+                    asyncio.create_task(ws.send_json(log_entry))
+                except Exception:
+                    disconnected.append(ws)
+            
+            # Remove disconnected clients
+            for ws in disconnected:
+                if ws in log_subscribers:
+                    log_subscribers.remove(ws)
+        except Exception:
+            pass
+
+# Set up logging handler
+log_handler = LogBufferHandler()
+log_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+log_handler.setFormatter(formatter)
+
+# Add handler to root logger and uvicorn logger
+logging.getLogger().addHandler(log_handler)
+logging.getLogger("uvicorn").addHandler(log_handler)
+logging.getLogger("uvicorn.access").addHandler(log_handler)
+
+# Create logger for this module
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 
 @app.get("/health")
 async def health():
+    logger.debug("Health check requested")
     return {"status": "ok"}
+
+
+@app.websocket("/ws/logs")
+async def websocket_logs(websocket: WebSocket):
+    """WebSocket endpoint for real-time log streaming."""
+    await websocket.accept()
+    log_subscribers.append(websocket)
+    logger.info(f"New log viewer connected. Total subscribers: {len(log_subscribers)}")
+    
+    try:
+        # Send existing log buffer to new client (make a copy to avoid mutation issues)
+        existing_logs = list(log_buffer)
+        for log_entry in existing_logs:
+            await websocket.send_json(log_entry)
+        
+        # Keep connection alive and wait for disconnect
+        while True:
+            # Just wait for messages (we don't expect any from client)
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        if websocket in log_subscribers:
+            log_subscribers.remove(websocket)
+        logger.info(f"Log viewer disconnected. Remaining subscribers: {len(log_subscribers)}")
+    except Exception as e:
+        if websocket in log_subscribers:
+            log_subscribers.remove(websocket)
+        logger.error(f"WebSocket error: {e}")
+
+
+@app.get("/api/logs")
+async def get_logs(limit: int = 100):
+    """Get recent logs as JSON array."""
+    logs = list(log_buffer)
+    logger.debug(f"Logs requested: returning {min(limit, len(logs))} of {len(logs)} entries")
+    return logs[-limit:] if limit < len(logs) else logs
+
+
+class FrontendLogRequest(BaseModel):
+    level: str
+    message: str
+    timestamp: str
+
+
+@app.post("/api/frontend-log")
+async def receive_frontend_log(log_entry: FrontendLogRequest):
+    """Receive log entries from the frontend and add them to the log buffer."""
+    try:
+        # Create a log entry that matches our format
+        log_data = {
+            "timestamp": log_entry.timestamp,
+            "level": log_entry.level,
+            "logger": "frontend",
+            "message": log_entry.message
+        }
+        log_buffer.append(log_data)
+        logger.debug(f"Frontend log received: {log_entry.message}, subscribers: {len(log_subscribers)}")
+        
+        # Broadcast to all connected WebSocket clients
+        disconnected = []
+        for ws in log_subscribers:
+            try:
+                await ws.send_json(log_data)
+                logger.debug(f"Sent log to WebSocket client")
+            except Exception as e:
+                logger.debug(f"Failed to send to WebSocket: {e}")
+                disconnected.append(ws)
+        
+        # Remove disconnected clients
+        for ws in disconnected:
+            if ws in log_subscribers:
+                log_subscribers.remove(ws)
+        
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Error receiving frontend log: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 @app.get("/messages")
@@ -43,13 +172,13 @@ async def get_messages(limit: int = 50, offset: int = 0) -> dict:
     """
     import time
     start_time = time.time()
-    print(f"[GET MESSAGES] Starting query - limit={limit}, offset={offset}")
+    logger.info(f"GET /messages - limit={limit}, offset={offset}")
 
     msgs = storage.list_messages_dicts(limit=limit, offset=offset)
     total = len(storage.get_message_ids())
 
     query_time = time.time() - start_time
-    print(f"[GET MESSAGES] Query completed in {query_time:.3f}s - found {len(msgs)}/{total} messages")
+    logger.info(f"GET /messages - returned {len(msgs)}/{total} messages in {query_time:.3f}s")
     return {
         "data": msgs,
         "total": total,
@@ -61,9 +190,12 @@ async def get_messages(limit: int = 50, offset: int = 0) -> dict:
 @app.get("/messages/{message_id}")
 async def get_message(message_id: str) -> dict:
     """Get a single message by ID with its classification data."""
+    logger.debug(f"GET /messages/{message_id}")
     msg = storage.get_message_by_id(message_id)
     if not msg:
+        logger.warning(f"Message not found: {message_id}")
         raise HTTPException(status_code=404, detail="Message not found")
+    logger.debug(f"Found message: {msg.subject[:50]}")
     return msg.to_dict()
 
 
@@ -82,13 +214,16 @@ async def get_message_classifications(message_id: str) -> List[dict]:
 @app.get("/messages/{message_id}/classification/latest")
 async def get_latest_classification(message_id: str) -> Optional[dict]:
     """Get the most recent classification for a message."""
+    logger.debug(f"GET /messages/{message_id}/classification/latest")
     # Verify message exists
     msg = storage.get_message_by_id(message_id)
     if not msg:
+        logger.warning(f"Message not found: {message_id}")
         raise HTTPException(status_code=404, detail="Message not found")
 
     classification = storage.get_latest_classification(message_id)
     if not classification:
+        logger.warning(f"No classification found for message: {message_id}")
         raise HTTPException(status_code=404, detail="No classification found for this message")
 
     return classification
@@ -97,10 +232,12 @@ async def get_latest_classification(message_id: str) -> Optional[dict]:
 @app.get("/stats")
 async def get_stats() -> dict:
     """Get classification statistics."""
+    logger.info("GET /stats - calculating statistics")
     all_message_ids = storage.get_message_ids()
     unclassified_ids = storage.get_unclassified_message_ids()
     classified_count = storage.count_classified_messages()
     total_count = len(all_message_ids)
+    logger.debug(f"Stats: {classified_count}/{total_count} classified")
 
     # Count by priority
     messages = storage.list_messages(limit=1000)
@@ -141,6 +278,7 @@ async def get_labels(min_count: int = 3) -> dict:
     Args:
         min_count: Minimum number of occurrences to include a label (default: 3)
     """
+    logger.info(f"GET /labels - min_count={min_count}")
     # Use efficient database query instead of fetching all messages
     all_counts = storage.get_label_counts()
 
@@ -149,6 +287,7 @@ async def get_labels(min_count: int = 3) -> dict:
 
     # Sort by count descending
     sorted_labels = sorted(filtered_counts.items(), key=lambda x: x[1], reverse=True)
+    logger.debug(f"Returning {len(sorted_labels)} labels")
 
     return {
         "labels": [{"name": label, "count": count} for label, count in sorted_labels]
@@ -160,7 +299,7 @@ async def filter_by_priority(priority: str, limit: int = 50, offset: int = 0) ->
     """Get messages filtered by priority (high, medium, low, unclassified)."""
     import time
     start_time = time.time()
-    print(f"[FILTER PRIORITY] Starting query - priority={priority}, limit={limit}, offset={offset}")
+    logger.info(f"GET /messages/filter/priority/{priority} - limit={limit}, offset={offset}")
 
     if priority.lower() == "unclassified":
         # Use database-level filtering for unclassified messages
@@ -170,7 +309,7 @@ async def filter_by_priority(priority: str, limit: int = 50, offset: int = 0) ->
         messages, total = storage.list_messages_by_priority(priority, limit=limit, offset=offset)
 
     query_time = time.time() - start_time
-    print(f"[FILTER PRIORITY] Query completed in {query_time:.3f}s - found {len(messages)}/{total} messages")
+    logger.info(f"Priority filter returned {len(messages)}/{total} messages in {query_time:.3f}s")
 
     return {
         "data": [m.to_dict() for m in messages],
@@ -185,13 +324,13 @@ async def filter_by_label(label: str, limit: int = 50, offset: int = 0) -> dict:
     """Get messages filtered by classification label."""
     import time
     start_time = time.time()
-    print(f"[FILTER LABEL] Starting query - label={label}, limit={limit}, offset={offset}")
+    logger.info(f"GET /messages/filter/label/{label} - limit={limit}, offset={offset}")
 
     # Use database-level filtering with GIN index on classification_labels
     messages, total = storage.list_messages_by_label(label, limit=limit, offset=offset)
 
     query_time = time.time() - start_time
-    print(f"[FILTER LABEL] Query completed in {query_time:.3f}s - found {len(messages)}/{total} messages")
+    logger.info(f"Label filter returned {len(messages)}/{total} messages in {query_time:.3f}s")
 
     return {
         "data": [m.to_dict() for m in messages],
@@ -204,8 +343,10 @@ async def filter_by_label(label: str, limit: int = 50, offset: int = 0) -> dict:
 @app.get("/messages/filter/classified")
 async def filter_classified(limit: int = 50, offset: int = 0) -> dict:
     """Get only classified messages."""
+    logger.info(f"GET /messages/filter/classified - limit={limit}, offset={offset}")
     # Use database-level filtering with index on latest_classification_id
     messages, total = storage.list_classified_messages(limit=limit, offset=offset)
+    logger.debug(f"Found {len(messages)}/{total} classified messages")
 
     return {
         "data": [m.to_dict() for m in messages],
@@ -218,8 +359,10 @@ async def filter_classified(limit: int = 50, offset: int = 0) -> dict:
 @app.get("/messages/filter/unclassified")
 async def filter_unclassified(limit: int = 50, offset: int = 0) -> dict:
     """Get only unclassified messages."""
+    logger.info(f"GET /messages/filter/unclassified - limit={limit}, offset={offset}")
     # Use database-level filtering
     messages, total = storage.list_unclassified_messages(limit=limit, offset=offset)
+    logger.debug(f"Found {len(messages)}/{total} unclassified messages")
 
     return {
         "data": [m.to_dict() for m in messages],
@@ -249,8 +392,8 @@ async def filter_advanced(
     import time
     start_time = time.time()
 
-    print(
-        f"[ADVANCED FILTER] Starting query - priority={priority}, "
+    logger.info(
+        f"GET /messages/filter/advanced - priority={priority}, "
         f"labels={labels}, status={status}, limit={limit}, offset={offset}"
     )
 
@@ -379,8 +522,36 @@ async def list_models() -> dict:
             data = json.loads(response.read())
             models = [{"name": m["name"], "size": m["size"]} for m in data.get("models", [])]
             return {"models": models}
+    except urllib.error.URLError as e:
+        logger.warning(f"Ollama not available: {e}")
+        raise HTTPException(status_code=503, detail="Ollama service not available. Please start Ollama.")
     except Exception as e:
+        logger.error(f"Error fetching models: {e}")
         return {"models": [], "error": str(e)}
+
+
+@app.post("/api/ollama/start")
+async def start_ollama() -> dict:
+    """Start the Ollama service."""
+    import subprocess
+    import os
+    
+    logger.info("Starting Ollama service...")
+    try:
+        # Try to start Ollama in the background
+        if os.name == 'nt':  # Windows
+            subprocess.Popen(['ollama', 'serve'], creationflags=subprocess.CREATE_NO_WINDOW)
+        else:  # Unix/Linux/Mac
+            subprocess.Popen(['ollama', 'serve'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        
+        logger.info("Ollama service start command issued")
+        return {"status": "started", "message": "Ollama service is starting"}
+    except FileNotFoundError:
+        logger.error("Ollama executable not found")
+        raise HTTPException(status_code=404, detail="Ollama not installed. Please install Ollama from https://ollama.ai")
+    except Exception as e:
+        logger.error(f"Failed to start Ollama: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start Ollama: {str(e)}")
 
 
 class ReclassifyRequest(BaseModel):

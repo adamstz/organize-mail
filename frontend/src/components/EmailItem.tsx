@@ -19,6 +19,7 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { Email } from '../types/email';
+import { logger } from '../utils/logger';
 
 const getPriorityColor = (priority: Email['priority']): 'error' | 'warning' | 'success' | 'default' => {
   switch (priority.toLowerCase()) {
@@ -73,6 +74,7 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
 
     setIsReclassifying(true);
     showMessage('Classifying message...', 'info');
+    logger.info(`Reclassifying email ${email.id} with model ${selectedModel}`);
     
     try {
       const response = await fetch(`/messages/${email.id}/reclassify`, {
@@ -83,6 +85,7 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
       
       if (response.ok) {
         const result = await response.json();
+        logger.info(`Email ${email.id} reclassified successfully: ${result.priority}`);
         showMessage(`Successfully classified! Priority: ${result.priority || 'N/A'}`, 'success');
         
         // Trigger parent refresh after a short delay to show success message
@@ -143,6 +146,8 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
           borderRadius: 1,
           p: 2,
           boxShadow: 1,
+          display: 'flex',
+          alignItems: 'center',
         }}
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
@@ -201,7 +206,7 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
             </Box>
           </Box>
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 2 }}>
           <Tooltip title={isReclassifying ? 'Classifying...' : `Classify with ${selectedModel}`}>
             <span>
               <IconButton
