@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Box, ToggleButton, ToggleButtonGroup, TextField, InputAdornment, Chip, Stack, Typography, Button, Select, MenuItem, FormControl, InputLabel, Alert, IconButton, Switch, FormControlLabel, Tooltip, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
-import { Search as SearchIcon, ArrowUpward as ArrowUpIcon, ArrowDownward as ArrowDownIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, Refresh as RefreshIcon, Security as SecurityIcon, Warning as WarningIcon } from '@mui/icons-material';
+import { Box, ToggleButton, ToggleButtonGroup, TextField, InputAdornment, Chip, Stack, Typography, Button, Select, MenuItem, FormControl, InputLabel, Alert } from '@mui/material';
+import { Search as SearchIcon, ArrowUpward as ArrowUpIcon, ArrowDownward as ArrowDownIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, Refresh as RefreshIcon } from '@mui/icons-material';
 import { logger } from '../utils/logger';
 
 interface EmailToolbarProps {
@@ -19,8 +19,6 @@ interface EmailToolbarProps {
   onPriorityFilter: (priority: string) => void;
   selectedModel: string;
   onModelChange: (model: string) => void;
-  defaultRichMode: boolean;
-  onDefaultRichModeChange: (richMode: boolean) => void;
 }
 
 interface Label {
@@ -40,16 +38,13 @@ const EmailToolbar: React.FC<EmailToolbarProps> = ({
   onPriorityFilter,
   selectedModel,
   onModelChange,
-  defaultRichMode,
-  onDefaultRichModeChange,
 }) => {
   const [labels, setLabels] = useState<Label[]>([]);
   const [loading, setLoading] = useState(false);
   const [showAllLabels, setShowAllLabels] = useState(false);
-  const [models, setModels] = useState<Array<{name: string; size: number}>>([]);
+  const [models, setModels] = useState<Array<{ name: string; size: number }>>([]);
   const [ollamaError, setOllamaError] = useState<string | null>(null);
   const [startingOllama, setStartingOllama] = useState(false);
-  const [showRichModeConfirm, setShowRichModeConfirm] = useState(false);
   const MAX_VISIBLE_LABELS = 6; // Number of labels to show before collapsing
 
   // Wrapper functions to add logging
@@ -93,27 +88,7 @@ const EmailToolbar: React.FC<EmailToolbarProps> = ({
     onModelChange(model);
   };
 
-  const handleRichModeToggle = (checked: boolean) => {
-    if (checked) {
-      // Switching to rich mode - show confirmation
-      setShowRichModeConfirm(true);
-    } else {
-      // Switching to safe mode - no confirmation needed
-      logger.info('User disabled rich mode default (enabled safe mode)');
-      onDefaultRichModeChange(false);
-    }
-  };
 
-  const handleConfirmRichMode = () => {
-    logger.info('User confirmed rich mode default');
-    onDefaultRichModeChange(true);
-    setShowRichModeConfirm(false);
-  };
-
-  const handleCancelRichMode = () => {
-    logger.info('User cancelled rich mode default');
-    setShowRichModeConfirm(false);
-  };
 
   const fetchModels = async () => {
     try {
@@ -176,7 +151,7 @@ const EmailToolbar: React.FC<EmailToolbarProps> = ({
         setLoading(false);
       }
     }
-    
+
     fetchLabels();
     fetchModels();
   }, []);
@@ -184,64 +159,6 @@ const EmailToolbar: React.FC<EmailToolbarProps> = ({
   return (
     <Box sx={{ mb: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', mb: 2 }}>
-        <Tooltip title="When enabled, emails will load rich content (HTML/images) by default. This may expose your IP address.">
-          <FormControlLabel
-            control={
-              <Switch
-                checked={defaultRichMode}
-                onChange={(e) => handleRichModeToggle(e.target.checked)}
-                size="small"
-              />
-            }
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <SecurityIcon fontSize="small" color={defaultRichMode ? 'warning' : 'success'} />
-                <Typography variant="body2">
-                  {defaultRichMode ? 'Rich Mode Default' : 'Safe Mode Default'}
-                </Typography>
-              </Box>
-            }
-          />
-        </Tooltip>
-
-        {/* Rich Mode Confirmation Dialog */}
-        <Dialog
-          open={showRichModeConfirm}
-          onClose={handleCancelRichMode}
-          aria-labelledby="rich-mode-dialog-title"
-          aria-describedby="rich-mode-dialog-description"
-        >
-          <DialogTitle id="rich-mode-dialog-title">
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <WarningIcon color="warning" />
-              Enable Rich Mode by Default?
-            </Box>
-          </DialogTitle>
-          <DialogContent>
-            <DialogContentText id="rich-mode-dialog-description">
-              <strong>Warning:</strong> Enabling rich mode by default will automatically load HTML content and external images in all emails.
-              <br /><br />
-              <strong>Privacy Implications:</strong>
-              <ul style={{ marginTop: '8px', marginBottom: '8px' }}>
-                <li>External images can expose your IP address to email senders</li>
-                <li>Tracking pixels can reveal when and how often you read emails</li>
-                <li>Your location and device information may be leaked</li>
-              </ul>
-              <strong>Recommendation:</strong> Keep safe mode as default and only enable rich content for individual emails you trust.
-              <br /><br />
-              Are you sure you want to enable rich mode by default?
-            </DialogContentText>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={handleCancelRichMode} color="primary" autoFocus>
-              Cancel - Keep Safe Mode
-            </Button>
-            <Button onClick={handleConfirmRichMode} color="warning" variant="contained">
-              Yes, Enable Rich Mode
-            </Button>
-          </DialogActions>
-        </Dialog>
-        
         <FormControl size="small" sx={{ minWidth: 150 }} error={!!ollamaError}>
           <InputLabel>LLM Model</InputLabel>
           <Select
@@ -257,7 +174,7 @@ const EmailToolbar: React.FC<EmailToolbarProps> = ({
             ))}
           </Select>
         </FormControl>
-        
+
         {ollamaError && (
           <>
             <Alert severity="warning" sx={{ py: 0, alignItems: 'center' }}>
@@ -274,7 +191,7 @@ const EmailToolbar: React.FC<EmailToolbarProps> = ({
             </Button>
           </>
         )}
-        
+
         <TextField
           size="small"
           placeholder="Search emails..."
@@ -289,18 +206,18 @@ const EmailToolbar: React.FC<EmailToolbarProps> = ({
             ),
           }}
         />
-        
+
         <Chip
           icon={sortOrder === 'recent' ? <ArrowDownIcon /> : <ArrowUpIcon />}
           label={sortOrder === 'recent' ? 'Newest First' : 'Oldest First'}
           onClick={handleSortToggle}
           variant="outlined"
-          sx={{ 
+          sx={{
             cursor: 'pointer',
             '&:hover': { bgcolor: 'action.hover' }
           }}
         />
-        
+
         <ToggleButtonGroup
           value={filters.status}
           exclusive
@@ -402,21 +319,21 @@ const EmailToolbar: React.FC<EmailToolbarProps> = ({
                       variant={isSelected ? 'filled' : 'outlined'}
                       color={isSelected ? 'primary' : 'default'}
                       size="small"
-                      sx={{ 
+                      sx={{
                         cursor: 'pointer',
                         '&:hover': { bgcolor: 'action.hover' }
                       }}
                     />
                   );
                 })}
-              
+
               {/* Show expand/collapse button if there are more labels than MAX_VISIBLE_LABELS */}
               {labels.length > MAX_VISIBLE_LABELS && (
                 <Button
                   size="small"
                   onClick={() => setShowAllLabels(!showAllLabels)}
                   startIcon={showAllLabels ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                  sx={{ 
+                  sx={{
                     textTransform: 'none',
                     minWidth: 'auto',
                     px: 1

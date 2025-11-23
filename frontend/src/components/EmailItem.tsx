@@ -44,10 +44,9 @@ interface EmailItemProps {
   onDelete: (id: string) => void;
   onReclassify?: (id: string) => void;
   selectedModel?: string;
-  defaultRichMode?: boolean;
 }
 
-const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDelete, onReclassify, selectedModel = 'gemma:2b', defaultRichMode = false }) => {
+const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDelete, onReclassify, selectedModel = 'gemma:2b' }) => {
   const [isReclassifying, setIsReclassifying] = useState(false);
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
@@ -77,19 +76,19 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
     setIsReclassifying(true);
     showMessage('Classifying message...', 'info');
     logger.info(`Reclassifying email ${email.id} with model ${selectedModel}`);
-    
+
     try {
       const response = await fetch(`/messages/${email.id}/reclassify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: selectedModel })
       });
-      
+
       if (response.ok) {
         const result = await response.json();
         logger.info(`Email ${email.id} reclassified successfully: ${result.priority}`);
         showMessage(`Successfully classified! Priority: ${result.priority || 'N/A'}`, 'success');
-        
+
         // Trigger parent refresh after a short delay to show success message
         setTimeout(() => {
           if (onReclassify) {
@@ -99,7 +98,7 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
       } else {
         const errorText = await response.text();
         let errorMessage = 'Classification failed';
-        
+
         try {
           const errorJson = JSON.parse(errorText);
           if (errorJson.detail) {
@@ -111,7 +110,7 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
             errorMessage = errorText;
           }
         }
-        
+
         // Check for common errors
         if (response.status === 503 || errorMessage.includes('LLM') || errorMessage.includes('provider')) {
           showMessage('LLM service is not available. Please ensure your LLM server is running.', 'error');
@@ -248,7 +247,7 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
               {email.subject}
             </Typography>
           </Box>
-          
+
           <Box sx={{ mb: 2 }}>
             <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
               Date:
@@ -257,16 +256,16 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
               {email.date}
             </Typography>
           </Box>
-          
+
           <Box>
             <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', mb: 1 }}>
               Body:
             </Typography>
-            <EmailBodyRenderer messageId={email.id} defaultRichMode={defaultRichMode} />
+            <EmailBodyRenderer html={email.html || ''} plainText={email.plain_text || email.body || ''} />
           </Box>
         </Box>
       </Collapse>
-      
+
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}

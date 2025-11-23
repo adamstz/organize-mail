@@ -1,212 +1,74 @@
-import React, { useState, useEffect } from 'react';
-import { Box, Button, Typography, Link, Alert, CircularProgress } from '@mui/material';
-import {
-  Visibility as VisibilityIcon,
-  VisibilityOff as VisibilityOffIcon,
-  Link as LinkIcon,
-  Image as ImageIcon,
-  Security as SecurityIcon,
-} from '@mui/icons-material';
+import React, { useMemo } from 'react';
+import { Box, Typography, Alert, Button } from '@mui/material';
 import DOMPurify from 'isomorphic-dompurify';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import ImageIcon from '@mui/icons-material/Image';
+import SecurityIcon from '@mui/icons-material/Security';
 
 interface EmailBodyRendererProps {
-  messageId: string;
-  defaultRichMode?: boolean;
+  html: string;
+  plainText: string;
 }
 
-interface ProcessedEmailBody {
-  sanitized_html: string;
-  plain_text: string;
-  has_external_images: boolean;
-  external_image_count: number;
-  tracking_pixels_removed: number;
-  has_blocked_content: boolean;
-}
-
-const EmailBodyRenderer: React.FC<EmailBodyRendererProps> = ({ 
-  messageId,
-  defaultRichMode = false 
+const EmailBodyRenderer: React.FC<EmailBodyRendererProps> = ({
+  html,
+  plainText
 }) => {
-  const [showRichContent, setShowRichContent] = useState(defaultRichMode);
-  const [imagesEnabled, setImagesEnabled] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [emailData, setEmailData] = useState<ProcessedEmailBody | null>(null);
+  const [imagesEnabled, setImagesEnabled] = React.useState(false);
 
-  // Fetch sanitized email body from new API endpoint
-  useEffect(() => {
-    const fetchEmailBody = async () => {
-      setLoading(true);
-      setError(null);
-      
-      try {
-        const blockImages = !imagesEnabled;
-        const response = await fetch(
-          `/messages/${messageId}/body?block_images=${blockImages}`
-        );
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch email body: ${response.statusText}`);
-        }
-        
-        const data: ProcessedEmailBody = await response.json();
-        setEmailData(data);
-        
-        console.log(
-          `[EmailBodyRenderer] Loaded email body: ` +
-          `${data.tracking_pixels_removed} tracking pixels removed, ` +
-          `${data.external_image_count} external images detected`
-        );
-      } catch (err) {
-        console.error('[EmailBodyRenderer] Error fetching email body:', err);
-        setError(err instanceof Error ? err.message : 'Unknown error');
-      } finally {
-        setLoading(false);
-      }
-    };
+  // Process HTML client-side: sanitize and optionally block images
+  const processedHtml = useMemo(() => {
+    if (!html) return { html: '', stats: { externalImages: 0, trackingPixels: 0 } };
 
-    fetchEmailBody();
-  }, [messageId, imagesEnabled]);
+    let processedHtml = html;
+    let externalImageCount = 0;
+    let trackingPixelCount = 0;
 
-  // Function to linkify URLs in plain text (for safe mode)
-  const linkifyText = (text: string): React.ReactNode[] => {
-    if (!text) return [];
+    // If images are blocked, replace external image sources with placeholders
+    if (!imagesEnabled) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
 
-    const parts: React.ReactNode[] = [];
-    let lastIndex = 0;
-    
-    // Combine URL and email patterns
-    const combinedPattern = /(https?:\/\/[^\s<>'"]+?)(?=[.,;:!?)\]]*(?:\s|$))|([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
-    let match;
-    
-    while ((match = combinedPattern.exec(text)) !== null) {
-      // Add text before the match
-      if (match.index > lastIndex) {
-        parts.push(text.substring(lastIndex, match.index));
-      }
-      
-      const matchedText = match[0];
-      
-      if (match[1]) {
-        // It's a URL
-        let displayUrl = matchedText;
-        
-        // Truncate very long URLs for display
-        if (matchedText.length > 60) {
-          try {
-            const url = new URL(matchedText);
-            displayUrl = `${url.protocol}//${url.hostname}/...`;
-          } catch {
-            displayUrl = matchedText.substring(0, 57) + '...';
+      const images = doc.querySelectorAll('img');
+      images.forEach((img) => {
+        const src = img.getAttribute('src') || '';
+
+        // Check if it's an external image (http/https)
+        if (src.startsWith('http://') || src.startsWith('https://')) {
+          // Check if it's a tracking pixel (1x1 or hidden)
+          const width = img.getAttribute('width') || '';
+          const height = img.getAttribute('height') || '';
+          const style = img.getAttribute('style') || '';
+
+          const isTrackingPixel = (
+            (width === '1' && height === '1') ||
+            (width === '0' || height === '0') ||
+            style.includes('display:none') ||
+            style.includes('display: none') ||
+            style.includes('visibility:hidden') ||
+            style.includes('visibility: hidden')
+          );
+
+          if (isTrackingPixel) {
+            // Remove tracking pixels entirely
+            img.remove();
+            trackingPixelCount++;
+          } else {
+            // Block external images with placeholder
+            img.setAttribute('data-blocked-src', src);
+            img.setAttribute('src', 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext x="50" y="50" text-anchor="middle" fill="%23999" font-size="12"%3EImage Blocked%3C/text%3E%3C/svg%3E');
+            img.setAttribute('data-blocked', 'true');
+            externalImageCount++;
           }
         }
-        
-        parts.push(
-          <Link
-            key={`url-${match.index}`}
-            href={matchedText}
-            target="_blank"
-            rel="noopener noreferrer"
-            sx={{ 
-              color: 'primary.main',
-              textDecoration: 'underline',
-              wordBreak: 'break-word',
-            }}
-          >
-            {displayUrl}
-          </Link>
-        );
-      } else if (match[2]) {
-        // It's an email address
-        parts.push(
-          <Link
-            key={`email-${match.index}`}
-            href={`mailto:${matchedText}`}
-            sx={{ 
-              color: 'primary.main',
-              textDecoration: 'underline',
-            }}
-          >
-            {matchedText}
-          </Link>
-        );
-      }
-      
-      lastIndex = match.index + matchedText.length;
+      });
+
+      processedHtml = doc.body.innerHTML;
     }
-    
-    // Add remaining text
-    if (lastIndex < text.length) {
-      parts.push(text.substring(lastIndex));
-    }
-    
-    return parts.length > 0 ? parts : [text];
-  };
 
-  // Render safe mode (plain text with clickable links)
-  const renderSafeMode = () => {
-    if (!emailData) return null;
-
-    // Don't filter out empty lines - preserve whitespace for readability
-    const lines = emailData.plain_text.split('\n');
-    
-    // Check if we have anything security-related to show
-    const hasSecurityInfo = emailData.tracking_pixels_removed > 0 || emailData.has_external_images;
-    
-    return (
-      <Box>
-        {/* Security info banner - only show if there's something to report */}
-        {hasSecurityInfo && (
-          <Alert 
-            severity="success" 
-            icon={<SecurityIcon />}
-            sx={{ mb: 2 }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-              <Typography variant="body2">
-                ✓ Safe mode
-                {emailData.tracking_pixels_removed > 0 && `: ${emailData.tracking_pixels_removed} tracking pixel(s) removed (won't load even with images enabled)`}
-              </Typography>
-              {emailData.has_external_images && (
-                <Button
-                  size="small"
-                  startIcon={<VisibilityIcon />}
-                  onClick={() => setShowRichContent(true)}
-                  variant="outlined"
-                >
-                  Show Rich Content
-                </Button>
-              )}
-            </Box>
-          </Alert>
-        )}
-
-        {/* Plain text content with linkified URLs */}
-        <Typography 
-          component="div" 
-          variant="body1" 
-          sx={{ 
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-          }}
-        >
-          {lines.map((line, lineIndex) => (
-            <Box key={lineIndex}>
-              {line.trim().length > 0 ? linkifyText(line) : '\u00A0'}
-            </Box>
-          ))}
-        </Typography>
-      </Box>
-    );
-  };
-
-  // Render rich mode (sanitized HTML with image controls)
-  const renderRichMode = () => {
-    if (!emailData) return null;
-
-    // Double-sanitize on client side (defense in depth)
-    // Note: Allow same tags/attributes as backend for consistency
-    const sanitizedHtml = DOMPurify.sanitize(emailData.sanitized_html, {
+    // Sanitize with DOMPurify
+    const sanitized = DOMPurify.sanitize(processedHtml, {
       ALLOWED_TAGS: [
         'p', 'br', 'div', 'span', 'a', 'img', 'b', 'i', 'u', 'strong', 'em', 'mark', 'small',
         'del', 'ins', 'sub', 'sup', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
@@ -223,141 +85,113 @@ const EmailBodyRenderer: React.FC<EmailBodyRendererProps> = ({
       ],
       ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
     });
-    
+
+    return {
+      html: sanitized,
+      stats: {
+        externalImages: externalImageCount,
+        trackingPixels: trackingPixelCount
+      }
+    };
+  }, [html, imagesEnabled]);
+
+  const { externalImages, trackingPixels } = processedHtml.stats;
+  const hasExternalImages = externalImages > 0;
+  const hasTrackingPixels = trackingPixels > 0;
+
+  // If no HTML, show plain text
+  if (!html || html.trim().length === 0) {
     return (
       <Box>
-        {/* Image blocking warning/controls */}
-        {emailData.has_external_images && (
-          <Alert 
-            severity={imagesEnabled ? "warning" : "info"}
-            icon={<ImageIcon />}
-            sx={{ mb: 2 }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
-              <Box>
-                {imagesEnabled ? (
-                  <Typography variant="body2">
-                    📷 Images loaded ({emailData.external_image_count}) - External servers can see your IP address
-                  </Typography>
-                ) : (
-                  <Typography variant="body2">
-                    📷 {emailData.external_image_count} external images blocked for privacy
-                  </Typography>
-                )}
-                {emailData.tracking_pixels_removed > 0 && (
-                  <Typography variant="caption" color="text.secondary">
-                    ✓ {emailData.tracking_pixels_removed} tracking pixel(s) removed
-                  </Typography>
-                )}
-              </Box>
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                {!imagesEnabled && (
-                  <Button
-                    size="small"
-                    startIcon={<VisibilityIcon />}
-                    onClick={() => setImagesEnabled(true)}
-                    variant="contained"
-                  >
-                    Load Images
-                  </Button>
-                )}
-                {imagesEnabled && (
-                  <Button
-                    size="small"
-                    startIcon={<VisibilityOffIcon />}
-                    onClick={() => setImagesEnabled(false)}
-                    variant="outlined"
-                  >
-                    Block Images Again
-                  </Button>
-                )}
+        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
+          {plainText || 'No content available'}
+        </Typography>
+      </Box>
+    );
+  }
+
+  return (
+    <Box>
+      {/* Image blocking info/controls */}
+      {hasExternalImages && (
+        <Alert
+          severity={imagesEnabled ? "warning" : "info"}
+          icon={<ImageIcon />}
+          sx={{ mb: 2 }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+            <Box>
+              {imagesEnabled ? (
+                <Typography variant="body2">
+                  📷 Images loaded ({externalImages}) - External servers can see your IP address
+                </Typography>
+              ) : (
+                <Typography variant="body2">
+                  📷 {externalImages} external images blocked for privacy
+                </Typography>
+              )}
+              {hasTrackingPixels && (
+                <Typography variant="caption" color="text.secondary">
+                  ✓ {trackingPixels} tracking pixel(s) removed
+                </Typography>
+              )}
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              {!imagesEnabled && (
                 <Button
                   size="small"
-                  onClick={() => setShowRichContent(false)}
+                  startIcon={<VisibilityIcon />}
+                  onClick={() => setImagesEnabled(true)}
+                  variant="contained"
+                >
+                  Load Images
+                </Button>
+              )}
+              {imagesEnabled && (
+                <Button
+                  size="small"
+                  startIcon={<VisibilityOffIcon />}
+                  onClick={() => setImagesEnabled(false)}
                   variant="outlined"
                 >
-                  Safe Mode
+                  Block Images Again
                 </Button>
-              </Box>
+              )}
             </Box>
-          </Alert>
-        )}
+          </Box>
+        </Alert>
+      )}
 
-        {/* Rich content mode notice */}
-        {!emailData.has_external_images && (
-          <Alert 
-            severity="info" 
-            icon={<LinkIcon />}
-            sx={{ mb: 2 }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Typography variant="body2">
-                Rich content mode - HTML sanitized
-              </Typography>
-              <Button
-                size="small"
-                onClick={() => setShowRichContent(false)}
-              >
-                Switch to Safe Mode
-              </Button>
-            </Box>
-          </Alert>
-        )}
+      {/* Tracking pixels removed notice (when no external images) */}
+      {!hasExternalImages && hasTrackingPixels && (
+        <Alert
+          severity="success"
+          icon={<SecurityIcon />}
+          sx={{ mb: 2 }}
+        >
+          <Typography variant="body2">
+            ✓ {trackingPixels} tracking pixel(s) removed
+          </Typography>
+        </Alert>
+      )}
 
-        {/* Sanitized HTML content */}
-        <Box
-          sx={{
-            '& img': {
-              maxWidth: '100%',
-              height: 'auto',
-            },
-            '& a': {
-              color: 'primary.main',
-              textDecoration: 'underline',
-            },
-            wordBreak: 'break-word',
-          }}
-          dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
-        />
-      </Box>
-    );
-  };
-
-  // Loading state
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <Alert severity="error" sx={{ mt: 2 }}>
-        Failed to load email content: {error}
-      </Alert>
-    );
-  }
-
-  // No data
-  if (!emailData) {
-    return (
-      <Alert severity="info" sx={{ mt: 2 }}>
-        No email content available
-      </Alert>
-    );
-  }
-
-  // Decide which mode to render
-  const hasHtmlContent = emailData.sanitized_html && emailData.sanitized_html.trim().length > 0;
-  
-  if (showRichContent && hasHtmlContent) {
-    return renderRichMode();
-  } else {
-    return renderSafeMode();
-  }
+      {/* Sanitized HTML content */}
+      <Box
+        sx={{
+          '& img': {
+            maxWidth: '100%',
+            height: 'auto',
+          },
+          '& a': {
+            color: 'primary.main',
+            textDecoration: 'underline',
+          },
+          wordBreak: 'break-word',
+        }}
+        dangerouslySetInnerHTML={{ __html: processedHtml.html }}
+      />
+    </Box>
+  );
 };
 
 export default EmailBodyRenderer;

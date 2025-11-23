@@ -1,8 +1,51 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import EmailList from '../components/EmailList';
+import exampleEmails from './exampleEmails';
 
 describe('EmailList Component', () => {
+  // Mock fetch for all tests
+  const fetchMock = vi.fn();
+  global.fetch = fetchMock;
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    // Default mock implementation
+    fetchMock.mockImplementation((url) => {
+      // Mock list endpoint - return error to trigger fallback to exampleEmails
+      // or return the exampleEmails directly if we want to test happy path
+      if (url.toString().includes('/messages') && !url.toString().includes('/body')) {
+        return Promise.resolve({
+          ok: true,
+          headers: { get: () => 'application/json' },
+          json: () => Promise.resolve({ data: exampleEmails, total: exampleEmails.length }),
+          text: () => Promise.resolve(JSON.stringify({ data: exampleEmails, total: exampleEmails.length })),
+        });
+      }
+
+      // Mock body endpoint
+      if (url.toString().includes('/body')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            sanitized_html: '<p>Dear team,</p>',
+            plain_text: 'Dear team,\n\n...',
+            has_external_images: false,
+            external_image_count: 0,
+            tracking_pixels_removed: 0,
+            has_blocked_content: false
+          }),
+        });
+      }
+
+      return Promise.reject(new Error('Not found'));
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   // Render smoke test: ensures the component renders the expected number
   // of email list items (from the example fixture) without runtime errors.
   it('renders email list with correct number of items', async () => {
@@ -28,13 +71,11 @@ describe('EmailList Component', () => {
 
     fireEvent.click(deleteButtons[0]);
 
-    await screen.findAllByRole('listitem');
     // wait for the list to update and assert the count decreased by one
-    await screen.findByText; // ensure async boundaries
-    await (async () => {
+    await waitFor(() => {
       const remaining = screen.getAllByRole('listitem');
       expect(remaining.length).toBe(initialEmails.length - 1);
-    })();
+    });
   });
 
   // Visual assertion: each priority label renders as an MUI Chip with the

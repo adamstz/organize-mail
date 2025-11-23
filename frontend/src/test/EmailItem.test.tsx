@@ -3,6 +3,11 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import EmailItem from '../components/EmailItem';
 import { Email } from '../types/email';
 
+// Mock EmailBodyRenderer to avoid fetch calls on mount
+vi.mock('../components/EmailBodyRenderer', () => ({
+  default: () => <div data-testid="email-body-renderer">Mock Body</div>,
+}));
+
 const mockEmail: Email = {
   id: '123',
   subject: 'Test Email',
@@ -29,7 +34,7 @@ describe('EmailItem Component', () => {
       <EmailItem
         email={mockEmail}
         isExpanded={false}
-        onExpand={() => {}}
+        onExpand={() => { }}
         onDelete={mockOnDelete}
         onReclassify={mockOnReclassify}
         selectedModel="gemma:2b"
@@ -45,7 +50,7 @@ describe('EmailItem Component', () => {
       <EmailItem
         email={mockEmail}
         isExpanded={false}
-        onExpand={() => {}}
+        onExpand={() => { }}
         onDelete={mockOnDelete}
         onReclassify={mockOnReclassify}
         selectedModel="gemma:2b"
@@ -62,7 +67,7 @@ describe('EmailItem Component', () => {
       <EmailItem
         email={normalEmail}
         isExpanded={false}
-        onExpand={() => {}}
+        onExpand={() => { }}
         onDelete={mockOnDelete}
         onReclassify={mockOnReclassify}
         selectedModel="gemma:2b"
@@ -79,7 +84,7 @@ describe('EmailItem Component', () => {
       <EmailItem
         email={lowEmail}
         isExpanded={false}
-        onExpand={() => {}}
+        onExpand={() => { }}
         onDelete={mockOnDelete}
         onReclassify={mockOnReclassify}
         selectedModel="gemma:2b"
@@ -95,7 +100,7 @@ describe('EmailItem Component', () => {
       <EmailItem
         email={mockEmail}
         isExpanded={false}
-        onExpand={() => {}}
+        onExpand={() => { }}
         onDelete={mockOnDelete}
         onReclassify={mockOnReclassify}
         selectedModel="gemma:2b"
@@ -107,18 +112,18 @@ describe('EmailItem Component', () => {
   });
 
   it('calls onReclassify when reclassify button is clicked and API succeeds', async () => {
-    vi.useFakeTimers();
-    
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ success: true, priority: 'high' }),
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((_url) => {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ success: true, priority: 'high' }),
+      });
     });
 
     render(
       <EmailItem
         email={mockEmail}
         isExpanded={false}
-        onExpand={() => {}}
+        onExpand={() => { }}
         onDelete={mockOnDelete}
         onReclassify={mockOnReclassify}
         selectedModel="gemma:7b"
@@ -126,24 +131,24 @@ describe('EmailItem Component', () => {
     );
 
     const reclassifyButton = screen.getByLabelText('reclassify');
-    
-    await act(async () => {
-      fireEvent.click(reclassifyButton);
-      // Wait for the fetch to complete
-      await vi.runAllTimersAsync();
+
+    fireEvent.click(reclassifyButton);
+
+    await waitFor(() => {
+      expect(global.fetch as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
+        '/messages/123/reclassify',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'gemma:7b' }),
+        })
+      );
     });
 
-    expect(global.fetch as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
-      '/messages/123/reclassify',
-      expect.objectContaining({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'gemma:7b' }),
-      })
-    );
-    expect(mockOnReclassify).toHaveBeenCalledWith('123');
-    
-    vi.useRealTimers();
+    // Wait for the component's internal setTimeout(1000)
+    await waitFor(() => {
+      expect(mockOnReclassify).toHaveBeenCalledWith('123');
+    }, { timeout: 3000 });
   });
 
   it('shows loading spinner while reclassifying', async () => {
@@ -151,14 +156,14 @@ describe('EmailItem Component', () => {
     const fetchPromise = new Promise<Response>((resolve) => {
       resolvePromise = resolve as (value: unknown) => void;
     });
-    
+
     (global.fetch as ReturnType<typeof vi.fn>).mockReturnValueOnce(fetchPromise);
 
     render(
       <EmailItem
         email={mockEmail}
         isExpanded={false}
-        onExpand={() => {}}
+        onExpand={() => { }}
         onDelete={mockOnDelete}
         onReclassify={mockOnReclassify}
         selectedModel="gemma:2b"
@@ -174,10 +179,12 @@ describe('EmailItem Component', () => {
     });
 
     // Resolve the promise
-    resolvePromise!({
-      ok: true,
-      json: async () => ({ success: true }),
-    } as unknown as Response);
+    await act(async () => {
+      resolvePromise!({
+        ok: true,
+        json: async () => ({ success: true }),
+      } as unknown as Response);
+    });
 
     // Spinner should disappear after the async operation completes
     await waitFor(() => {
@@ -187,19 +194,19 @@ describe('EmailItem Component', () => {
 
   it('does not call onReclassify when API fails', async () => {
     vi.useFakeTimers();
-    
+
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: false,
       status: 500,
     });
 
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
 
     render(
       <EmailItem
         email={mockEmail}
         isExpanded={false}
-        onExpand={() => {}}
+        onExpand={() => { }}
         onDelete={mockOnDelete}
         onReclassify={mockOnReclassify}
         selectedModel="gemma:2b"
@@ -207,7 +214,7 @@ describe('EmailItem Component', () => {
     );
 
     const reclassifyButton = screen.getByLabelText('reclassify');
-    
+
     await act(async () => {
       fireEvent.click(reclassifyButton);
       await vi.runAllTimersAsync();
@@ -240,12 +247,12 @@ describe('EmailItem Component', () => {
     fireEvent.click(header);
 
     expect(mockOnExpand).toHaveBeenCalledWith('123');
-  });  it('displays classification labels as chips', () => {
+  }); it('displays classification labels as chips', () => {
     render(
       <EmailItem
         email={mockEmail}
         isExpanded={false}
-        onExpand={() => {}}
+        onExpand={() => { }}
         onDelete={mockOnDelete}
         onReclassify={mockOnReclassify}
         selectedModel="gemma:2b"
@@ -261,7 +268,7 @@ describe('EmailItem Component', () => {
       <EmailItem
         email={mockEmail}
         isExpanded={false}
-        onExpand={() => {}}
+        onExpand={() => { }}
         onDelete={mockOnDelete}
         onReclassify={mockOnReclassify}
         selectedModel="gemma:2b"

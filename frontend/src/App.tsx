@@ -38,11 +38,6 @@ const App: React.FC = () => {
   const [chatWidth, setChatWidth] = useState(41.67); // Default ~5/12 columns in percentage
   const [isDragging, setIsDragging] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [defaultRichMode, setDefaultRichMode] = useState<boolean>(() => {
-    // Load from localStorage on initial mount
-    const saved = localStorage.getItem('emailDefaultRichMode');
-    return saved === 'true';
-  });
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -51,13 +46,13 @@ const App: React.FC = () => {
 
   const handleMouseMove = (e: MouseEvent) => {
     if (!isDragging) return;
-    
+
     const container = document.querySelector('.resizable-container');
     if (!container) return;
-    
+
     const containerRect = container.getBoundingClientRect();
     const newChatWidth = ((containerRect.right - e.clientX) / containerRect.width) * 100;
-    
+
     // Constrain between 20% and 70%
     if (newChatWidth >= 20 && newChatWidth <= 70) {
       setChatWidth(newChatWidth);
@@ -123,11 +118,7 @@ const App: React.FC = () => {
     setSortOrder(prev => prev === 'recent' ? 'oldest' : 'recent');
   };
 
-  // Save defaultRichMode to localStorage whenever it changes
-  React.useEffect(() => {
-    localStorage.setItem('emailDefaultRichMode', String(defaultRichMode));
-    logger.info(`Default rich mode changed to: ${defaultRichMode}`);
-  }, [defaultRichMode]);
+
 
   // Log when app loads
   React.useEffect(() => {
@@ -168,11 +159,11 @@ const App: React.FC = () => {
           </Tooltip>
         </Toolbar>
       </AppBar>
-      <Container 
-        maxWidth={false} 
-        disableGutters 
+      <Container
+        maxWidth={false}
+        disableGutters
         className="resizable-container"
-        sx={{ 
+        sx={{
           height: 'calc(100vh - 64px)', // Subtract AppBar height
           width: '100vw',
           bgcolor: 'grey.100',
@@ -182,7 +173,7 @@ const App: React.FC = () => {
           position: 'relative'
         }}
       >
-        <Box sx={{ 
+        <Box sx={{
           width: (isChatVisible || isLogsVisible) ? `${100 - chatWidth}%` : '100%',
           height: '100%',
           overflow: 'hidden',
@@ -192,7 +183,7 @@ const App: React.FC = () => {
         }}>
           <Box sx={{ p: 2, flexGrow: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
             <SyncStatus onRefresh={handleSyncRefresh} />
-            
+
             <EmailToolbar
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
@@ -205,17 +196,14 @@ const App: React.FC = () => {
               onPriorityFilter={handlePriorityFilter}
               selectedModel={selectedModel}
               onModelChange={setSelectedModel}
-              defaultRichMode={defaultRichMode}
-              onDefaultRichModeChange={setDefaultRichMode}
             />
 
-            <EmailList 
+            <EmailList
               key={refreshKey}
-              filters={filters} 
-              searchQuery={searchQuery} 
-              sortOrder={sortOrder} 
+              filters={filters}
+              searchQuery={searchQuery}
+              sortOrder={sortOrder}
               selectedModel={selectedModel}
-              defaultRichMode={defaultRichMode}
             />
           </Box>
         </Box>
@@ -244,7 +232,7 @@ const App: React.FC = () => {
             />
 
             {/* Right Side Panel - Chat and/or Logs */}
-            <Box sx={{ 
+            <Box sx={{
               width: `${chatWidth}%`,
               height: '100%',
               overflow: 'hidden',
@@ -255,10 +243,10 @@ const App: React.FC = () => {
             }}>
               {/* Chat Only */}
               {isChatVisible && !isLogsVisible && <ChatInterface />}
-              
+
               {/* Logs Only */}
               {!isChatVisible && isLogsVisible && <LogViewer onClose={() => setIsLogsVisible(false)} />}
-              
+
               {/* Split View - Chat and Logs */}
               {isChatVisible && isLogsVisible && (
                 <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

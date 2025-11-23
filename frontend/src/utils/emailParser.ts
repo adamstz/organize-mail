@@ -79,7 +79,7 @@ export const extractBody = (payloadObj: GmailPayload | null | undefined): string
   if (!payloadObj || typeof payloadObj !== 'object') {
     return '';
   }
-  
+
   // Check if this part has body data
   if (payloadObj.body?.data) {
     try {
@@ -90,7 +90,7 @@ export const extractBody = (payloadObj: GmailPayload | null | undefined): string
       // Failed to decode
     }
   }
-  
+
   // Check for parts (multipart messages)
   if (payloadObj.parts && Array.isArray(payloadObj.parts)) {
     // Prefer text/html over text/plain (like modern email clients)
@@ -99,89 +99,89 @@ export const extractBody = (payloadObj: GmailPayload | null | undefined): string
     if (htmlPart) {
       return extractBody(htmlPart);
     }
-    
+
     // Fall back to text/plain if no HTML version
     const textPart = payloadObj.parts.find((p: GmailPayloadPart) => p.mimeType === 'text/plain');
     if (textPart) {
       return extractBody(textPart);
     }
-    
+
     // Recursively check nested parts
     for (const part of payloadObj.parts) {
       const body = extractBody(part);
       if (body) return body;
     }
   }
-  
+
   return '';
 };
 
 // More aggressive HTML tag stripping function
 export const stripHtmlTags = (html: string): string => {
   if (!html) return '';
-  
+
   let text = html;
-  
+
   // Remove script and style tags and their content completely
   text = text.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
   text = text.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
-  
+
   // Remove HTML comments
   text = text.replace(/<!--[\s\S]*?-->/g, '');
-  
+
   // Replace common block-level tags with newlines before removing them
   text = text.replace(/<\/?(div|p|br|h[1-6]|li|tr|table|thead|tbody)[^>]*>/gi, '\n');
-  
+
   // Remove all remaining HTML tags (including any attributes)
   text = text.replace(/<[^>]+>/g, '');
-  
+
   // Remove any standalone HTML attributes that might have leaked through
   text = text.replace(/\b(?:style|class|id|data-[\w-]+)\s*=\s*["'][^"']*["']/gi, '');
   text = text.replace(/\b(?:style|class|id|data-[\w-]+)\s*=\s*\S+/gi, '');
-  
+
   // Remove CSS-like patterns (e.g., "color: red;", "font-size: 12px;")
   text = text.replace(/\b[\w-]+\s*:\s*[^;]+;/gi, '');
-  
+
   // Decode HTML entities
   const textarea = document.createElement('textarea');
   textarea.innerHTML = text;
   text = textarea.value;
-  
+
   return text;
 };
 
 // Improved body sanitization
 export const sanitizeBody = (text: string): string => {
   if (!text) return '';
-  
+
   let cleaned = text;
-  
+
   // First, aggressively strip any HTML tags and CSS
   cleaned = stripHtmlTags(cleaned);
-  
+
   // Remove common email tracking pixels and hidden content
   cleaned = cleaned.replace(/\[cid:[^\]]+\]/gi, ''); // Remove [cid:...] references
-  
+
   // Remove CSS @media queries and other at-rules that might have leaked
   cleaned = cleaned.replace(/@(?:media|import|font-face|keyframes|supports|page|charset)[^{]*\{[^}]*\}/gi, '');
-  
+
   // Remove any remaining curly braces (likely from CSS)
   cleaned = cleaned.replace(/\{[^}]*\}/g, '');
-  
+
   // Remove excessive newlines/whitespace
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n'); // Max 2 consecutive newlines
   cleaned = cleaned.replace(/[ \t]+/g, ' '); // Normalize spaces/tabs to single space
   cleaned = cleaned.replace(/^\s+/gm, ''); // Remove leading whitespace from lines
-  
+
   // Remove common email footers/disclaimers patterns
   cleaned = cleaned.replace(/\n*-{3,}\n[\s\S]*?(?:unsubscribe|privacy policy|terms of service)[\s\S]*/gi, '\n\n[footer removed]');
-  
+
   // Remove zero-width characters and other invisible chars
   cleaned = cleaned.replace(/[\u200B-\u200D\uFEFF]/g, '');
-  
+
   // Remove control characters except newlines and tabs
   cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
-  
+
   return cleaned.trim();
 };
 
@@ -195,7 +195,7 @@ export const parseBackendMessage = (m: Record<string, unknown>): Email | null =>
       hour: 'numeric',
       minute: '2-digit',
     });
-    
+
     // Fix double-encoded JSON strings from backend
     // labels might be "[\"INBOX\"]" (string) instead of ["INBOX"] (array)
     let labels = m.labels;
@@ -209,7 +209,7 @@ export const parseBackendMessage = (m: Record<string, unknown>): Email | null =>
         labels = []; // Default to empty array on parse error
       }
     }
-    
+
     // payload might be stringified JSON
     let payload = m.payload;
     if (typeof payload === 'string' && payload.trim().length > 0) {
@@ -219,7 +219,7 @@ export const parseBackendMessage = (m: Record<string, unknown>): Email | null =>
         // If it fails, it's probably actual text content, keep it as string
       }
     }
-    
+
     // headers might be stringified JSON
     let headers = m.headers;
     if (typeof headers === 'string' && headers.trim().length > 0) {
@@ -232,7 +232,7 @@ export const parseBackendMessage = (m: Record<string, unknown>): Email | null =>
         headers = {}; // Default to empty object on parse error
       }
     }
-    
+
     // classification_labels might be stringified
     let classificationLabels: string[] | null = null;
     const rawClassLabels = m.classification_labels ?? m.classificationLabels;
@@ -248,35 +248,35 @@ export const parseBackendMessage = (m: Record<string, unknown>): Email | null =>
     } else if (Array.isArray(rawClassLabels)) {
       classificationLabels = rawClassLabels.map(String);
     }
-    
+
     const d = parseMessageDate(m);
     const displayDate = d ? formatter.format(d) : '';
     const rawSubject = m.subject ?? m['subject'] ?? 'No subject';
     const rawSummary = m.snippet ?? '';
-    
+
     // Try to extract readable body
     let rawBody = '';
     if (payload && typeof payload === 'object') {
       rawBody = extractBody(payload);
     }
-    
+
     // Fallback to raw if no body extracted
     if (!rawBody && m.raw) {
       rawBody = String(m.raw);
     }
-    
+
     // If still empty, show snippet
     if (!rawBody) {
       rawBody = String(rawSummary);
     }
-    
+
     // Don't sanitize here - let EmailBodyRenderer handle it
     // This way it can detect HTML and offer rich mode if needed
     const bodyForDisplay = rawBody;
 
     const priority = m.priority;
     const summary = m.summary;
-    
+
     // Determine if message is classified
     // Check for non-empty arrays and non-empty strings
     const hasClassificationLabels = Boolean(classificationLabels && Array.isArray(classificationLabels) && classificationLabels.length > 0);
@@ -291,15 +291,17 @@ export const parseBackendMessage = (m: Record<string, unknown>): Email | null =>
       if (p === 'high') displayPriority = 'High';
       else if (p === 'medium' || p === 'normal') displayPriority = 'Normal';
       else if (p === 'low') displayPriority = 'Low';
-    }    return {
+    } return {
       id: String(m.id),
       subject: sanitizeText(String(rawSubject)),
       date: displayDate,
       priority: displayPriority,
       summary: sanitizeText(summary ? String(summary) : String(rawSummary)),
       body: bodyForDisplay, // Use raw body so EmailBodyRenderer can detect HTML
-      classificationLabels: classificationLabels && Array.isArray(classificationLabels) 
-        ? classificationLabels.map(String) 
+      html: typeof m.html === 'string' ? m.html : undefined,  // Raw HTML from backend
+      plain_text: typeof m.plain_text === 'string' ? m.plain_text : undefined,  // Plain text from backend
+      classificationLabels: classificationLabels && Array.isArray(classificationLabels)
+        ? classificationLabels.map(String)
         : undefined,
       isClassified,
       // Store original data for search filtering
