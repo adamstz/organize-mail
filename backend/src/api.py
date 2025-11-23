@@ -156,7 +156,7 @@ async def receive_frontend_log(log_entry: FrontendLogRequest):
 
 @app.get("/messages")
 async def get_messages(limit: int = 50, offset: int = 0) -> dict:
-    """Return messages from storage as JSON-serializable dicts with pagination metadata.
+    """Return messages from storage with HTML bodies included.
 
     Query params:
         - limit: max messages to return (default 50)
@@ -164,18 +164,56 @@ async def get_messages(limit: int = 50, offset: int = 0) -> dict:
 
     Returns:
         {
-            "data": [...],
+            "data": [...],  # Each message includes 'html' and 'plain_text' fields
             "total": N,
             "limit": 50,
             "offset": 0
         }
     """
     import time
+    from bs4 import BeautifulSoup
+    import re
+    
     start_time = time.time()
     logger.info(f"GET /messages - limit={limit}, offset={offset}")
 
     msgs = storage.list_messages_dicts(limit=limit, offset=offset)
     total = len(storage.get_message_ids())
+
+    # Add HTML body to each message
+    for msg in msgs:
+        html_body = ""
+        payload = msg.get('payload')
+        
+        # Handle payload deserialization if needed
+        if isinstance(payload, str):
+            try:
+                import json
+                payload = json.loads(payload)
+            except (json.JSONDecodeError, TypeError):
+                payload = None
+        
+        # Extract HTML from payload
+        if payload and isinstance(payload, dict):
+            html_body = _extract_html_from_payload(payload, logger)
+        
+        # Generate plain text from HTML
+        plain_text = ""
+        if html_body:
+            try:
+                soup = BeautifulSoup(html_body, 'html.parser')
+                for tag in soup.find_all(['style', 'script', 'head']):
+                    tag.decompose()
+                plain_text = soup.get_text(separator=' ', strip=True)
+                plain_text = re.sub(r'\s+', ' ', plain_text).strip()
+            except Exception:
+                plain_text = msg.get('snippet', '')
+        else:
+            plain_text = msg.get('snippet', '')
+        
+        # Add to message dict
+        msg['html'] = html_body
+        msg['plain_text'] = plain_text
 
     query_time = time.time() - start_time
     logger.info(f"GET /messages - returned {len(msgs)}/{total} messages in {query_time:.3f}s")
@@ -185,6 +223,7 @@ async def get_messages(limit: int = 50, offset: int = 0) -> dict:
         "limit": limit,
         "offset": offset
     }
+
 
 
 @app.get("/messages/{message_id}")
@@ -292,31 +331,20 @@ def _extract_html_from_payload(payload: dict, logger) -> str:
 
 
 @app.get("/messages/{message_id}/body")
-async def get_message_body(message_id: str, mode: str = "safe", block_images: bool = True) -> dict:
-    """Get sanitized email body with security processing.
+async def get_message_body(message_id: str) -> dict:
+    """Get email body HTML and metadata.
     
-    This endpoint processes email HTML through multiple security layers:
-    - Removes tracking pixels (1x1 images)
-    - Sanitizes HTML/CSS to prevent XSS
-    - Optionally blocks external images
+    Returns raw HTML extracted from the email payload.
+    Frontend is responsible for sanitization with DOMPurify.
     
-    Query params:
-        - mode: 'safe' (plain text) or 'rich' (sanitized HTML) - default: safe
-        - block_images: whether to block external images - default: true
-        
     Returns:
         {
-            "sanitized_html": "...",
-            "plain_text": "...", 
-            "has_external_images": true,
-            "external_image_count": 3,
-            "tracking_pixels_removed": 1,
-            "has_blocked_content": true
+            "html": "...",  # Raw HTML from email
+            "plain_text": "...",  # Plain text version
+            "snippet": "..."  # Email snippet
         }
     """
-    from .lib.email_processor import process_email_html
-    
-    logger.debug(f"GET /messages/{message_id}/body?mode={mode}&block_images={block_images}")
+    logger.debug(f"GET /messages/{message_id}/body")
     
     # Get the message
     msg = storage.get_message_by_id(message_id)
@@ -328,31 +356,51 @@ async def get_message_body(message_id: str, mode: str = "safe", block_images: bo
     html_body = ""
     payload = msg.payload
     
-    if not isinstance(payload, dict):
-        logger.error(f"Payload is not a dict - type: {type(payload)}")
-        raise HTTPException(status_code=500, detail="Invalid payload format")
+    # Handle payload deserialization if it's stored as JSON string
+    if isinstance(payload, str):
+        try:
+            import json
+            payload = json.loads(payload)
+            logger.debug(f"Deserialized payload from JSON string")
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error(f"Failed to deserialize payload: {e}")
+            payload = None
+    
+    if payload and not isinstance(payload, dict):
+        logger.error(f"Payload is not a dict after deserialization - type: {type(payload)}")
+        payload = None
     
     if payload:
         html_body = _extract_html_from_payload(payload, logger)
     
-    # Fallback: use snippet as plain text if no HTML
-    if not html_body:
-        html_body = msg.snippet or ""
-        logger.info(f"No HTML found in payload - using snippet fallback: {len(html_body)} chars")
-        print(f"ℹ️ [API] No HTML found - using snippet fallback: {len(html_body)} chars")
+    # Generate plain text from HTML or use snippet
+    plain_text = ""
+    if html_body:
+        # Simple HTML to text conversion
+        from bs4 import BeautifulSoup
+        try:
+            soup = BeautifulSoup(html_body, 'html.parser')
+            # Remove script and style tags
+            for tag in soup.find_all(['style', 'script', 'head']):
+                tag.decompose()
+            plain_text = soup.get_text(separator=' ', strip=True)
+            # Clean up whitespace
+            import re
+            plain_text = re.sub(r'\s+', ' ', plain_text).strip()
+        except Exception as e:
+            logger.error(f"Error converting HTML to plain text: {e}")
+            plain_text = msg.snippet or ""
+    else:
+        plain_text = msg.snippet or ""
     
-    print(f"[API] HTML BODY TO PROCESS: {len(html_body)} chars")
+    logger.info(f"Extracted email body for {message_id}: {len(html_body)} chars HTML, {len(plain_text)} chars plain text")
     
-    # Process the email with security features
-    result = process_email_html(html_body, block_images=block_images)
-    
-    logger.info(
-        f"Processed email body for {message_id}: "
-        f"{result.tracking_pixels_removed} pixels removed, "
-        f"{result.external_image_count} external images"
-    )
-    
-    return result.to_dict()
+    return {
+        "html": html_body,
+        "plain_text": plain_text,
+        "snippet": msg.snippet or ""
+    }
+
 
 
 @app.get("/messages/{message_id}/classifications")

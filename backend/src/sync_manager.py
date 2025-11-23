@@ -62,8 +62,7 @@ class SyncManager:
     def get_sync_status(self) -> Dict[str, Any]:
         """Get current sync status including counts and progress"""
         try:
-            # Get database counts
-            storage.init_db()
+            # Get database counts (database should already be initialized at startup)
             all_message_ids = storage.get_message_ids()
             db_total = len(all_message_ids)
             unclassified_ids = storage.get_unclassified_message_ids()
@@ -266,8 +265,7 @@ class SyncManager:
         try:
             logger.info("Starting classify and embed operation")
             
-            # Initialize services
-            storage.init_db()
+            # Initialize services (database should already be initialized at startup)
             processor = LLMProcessor()
             embedder = EmbeddingService()
             
@@ -330,7 +328,7 @@ class SyncManager:
                     subject = msg.subject or ""
                     from_addr = msg.from_ or ""
                     email_text = f"From: {from_addr}\nSubject: {subject}\n\n{body}"
-                    embedding = embedder.embed(email_text)
+                    embedding = embedder.embed_text(email_text)
                     
                     # Store embedding
                     backend = storage.get_storage_backend()
@@ -354,7 +352,12 @@ class SyncManager:
                         logger.info(f"Processed {i + 1}/{len(unclassified_ids)} messages")
                     
                 except Exception as e:
-                    logger.error(f"Error processing message {msg_id}: {e}")
+                    error_msg = f"❌ Error processing message {msg_id}: {e}"
+                    logger.error(error_msg, exc_info=True)
+                    print(f"\n{error_msg}")
+                    print(f"Exception type: {type(e).__name__}")
+                    import traceback
+                    traceback.print_exc()
                     self.classify_progress.errors += 1
             
             self.classify_progress.status = "completed"
