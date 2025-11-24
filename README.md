@@ -7,7 +7,7 @@ AI-powered email organization system with intelligent classification, RAG-powere
 Organize Mail is a full-stack application that helps you manage your inbox intelligently. It uses AI to automatically classify emails, provides a conversational interface to search through your email history, and offers real-time monitoring of classification activities.
 
 <!-- TODO: Add demo.gif or screenshot here -->
-![Demo](docs/images/demo.gif)
+![Demo](docs/app.png)
 *Application demo showing email classification and chat interface*
 
 ## Key Features
