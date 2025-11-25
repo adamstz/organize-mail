@@ -156,8 +156,6 @@ def test_find_similar():
     storage = get_storage_backend()
     if isinstance(storage, InMemoryStorage):
         pytest.skip("RAG tests require PostgreSQL storage backend")
-    if isinstance(storage, InMemoryStorage):
-        pytest.skip("RAG tests require PostgreSQL storage backend")
     embedder = EmbeddingService()
     llm = LLMProcessor()
     rag_engine = RAGQueryEngine(storage, embedder, llm)
