@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import EmailList from '../components/EmailList';
-import exampleEmails from './exampleEmails';
+import EmailList from '../../components/EmailList';
+import exampleEmails from '../exampleEmails';
 
 describe('EmailList Component', () => {
   // Mock fetch for all tests
