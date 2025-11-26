@@ -6,7 +6,7 @@
 
 import { describe, it, beforeEach, afterEach, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import EmailList from '../components/EmailList';
+import EmailList from '../../components/EmailList';
 
 describe('EmailList network error handling', () => {
   let origFetch: typeof globalThis.fetch;

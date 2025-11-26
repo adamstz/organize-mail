@@ -10,6 +10,7 @@ import os
 import json
 import pytest
 from src.llm_processor import LLMProcessor
+from src.llm_prompts import CLASSIFICATION_SYSTEM_MESSAGE, build_classification_prompt
 
 
 class TestLLMProcessorConstants:
@@ -20,9 +21,10 @@ class TestLLMProcessorConstants:
         os.environ["LLM_PROVIDER"] = "rules"
         processor = LLMProcessor()
         
-        assert processor.SYSTEM_MESSAGE is not None
-        assert len(processor.SYSTEM_MESSAGE) > 0
-        assert "classification" in processor.SYSTEM_MESSAGE.lower()
+        # Check system message from llm_prompts module
+        assert CLASSIFICATION_SYSTEM_MESSAGE is not None
+        assert len(CLASSIFICATION_SYSTEM_MESSAGE) > 0
+        assert "classification" in CLASSIFICATION_SYSTEM_MESSAGE.lower()
         
         assert processor.TEMPERATURE == 0.3
         assert processor.MAX_TOKENS == 200
@@ -108,10 +110,7 @@ class TestPromptBuilding:
 
     def test_prompt_includes_subject_and_body(self):
         """Prompt should contain email subject and body."""
-        import os
-        os.environ["LLM_PROVIDER"] = "rules"
-        processor = LLMProcessor()
-        prompt = processor._build_classification_prompt(
+        prompt = build_classification_prompt(
             "Invoice Payment Due",
             "Please pay your invoice for $500."
         )
@@ -121,28 +120,20 @@ class TestPromptBuilding:
 
     def test_prompt_includes_instructions(self):
         """Prompt should include classification instructions."""
-        os.environ["LLM_PROVIDER"] = "rules"
-        processor = LLMProcessor()
-        prompt = processor._build_classification_prompt("Test", "Test body")
+        prompt = build_classification_prompt("Test", "Test body")
         
         assert "labels" in prompt.lower()
         assert "priority" in prompt.lower()
         assert "json" in prompt.lower()
-        
-        os.environ.pop("LLM_PROVIDER", None)
 
     def test_prompt_truncates_long_body(self):
         """Long email bodies should be truncated to avoid token limits."""
-        os.environ["LLM_PROVIDER"] = "rules"
-        processor = LLMProcessor()
         long_body = "x" * 5000  # 5000 characters
-        prompt = processor._build_classification_prompt("Test", long_body)
+        prompt = build_classification_prompt("Test", long_body)
         
         # Body should be truncated to 2000 chars max
         # Prompt is longer now due to expanded label list (~1300 chars)
         assert len(prompt) < 3500  # Prompt + truncated body
-        
-        os.environ.pop("LLM_PROVIDER", None)
 
 
 class TestResponseParsing:

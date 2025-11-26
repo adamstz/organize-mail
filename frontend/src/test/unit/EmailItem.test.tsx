@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import EmailItem from '../components/EmailItem';
-import { Email } from '../types/email';
+import EmailItem from '../../components/EmailItem';
+import { Email } from '../../types/email';
 
 // Mock EmailBodyRenderer to avoid fetch calls on mount
-vi.mock('../components/EmailBodyRenderer', () => ({
+vi.mock('../../components/EmailBodyRenderer', () => ({
   default: () => <div data-testid="email-body-renderer">Mock Body</div>,
 }));
 
