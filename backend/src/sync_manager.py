@@ -17,8 +17,7 @@ from .clients.gmail import (
     fetch_message,
 )
 from . import storage
-from .llm_processor import LLMProcessor
-from .embedding_service import EmbeddingService
+from .services import LLMProcessor, EmbeddingService
 from .models.message import MailMessage
 import logging
 

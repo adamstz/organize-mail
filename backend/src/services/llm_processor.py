@@ -1,6 +1,6 @@
-"""Local LLM processor for message categorization.
+"""LangChain-based LLM processor for message categorization.
 
-This module provides pluggable LLM-based classification with multiple backends:
+This module provides pluggable LLM-based classification with multiple backends via LangChain:
 1. OpenAI API (GPT-3.5/4)
 2. Anthropic API (Claude)
 3. Ollama (local models via HTTP API)
@@ -15,18 +15,27 @@ Configuration via environment variables:
 - ORGANIZE_MAIL_LLM_CMD: External command to run (if using command provider)
 - LLM_MODEL: Model name (default: gpt-3.5-turbo for OpenAI, claude-3-haiku for Anthropic, llama3 for Ollama)
 """
-from typing import Dict
+from typing import Dict, Optional
 import os
 import json
 import shlex
 import subprocess
 import urllib.request
 import urllib.error
-from .classification_labels import ALLOWED_LABELS
-from .llm_prompts import CLASSIFICATION_SYSTEM_MESSAGE, build_classification_prompt
+import logging
+from langchain_core.language_models import BaseChatModel
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.messages import SystemMessage, HumanMessage
+from ..classification_labels import ALLOWED_LABELS
+from .prompt_templates import CLASSIFICATION_SYSTEM_MESSAGE, build_classification_prompt
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class LLMProcessor:
+    """LangChain-powered LLM processor for email classification and RAG."""
+
     # Shared LLM configuration
     TEMPERATURE = 0.3
     MAX_TOKENS = 200
@@ -36,6 +45,13 @@ class LLMProcessor:
         self.config = config or {}
         self.provider = self._detect_provider()
         self.model = self._get_model_name()
+        self.llm: Optional[BaseChatModel] = self._initialize_llm()
+
+        # Log LLM configuration
+        logger.info(f"[LLM INIT] Initialized LLM processor - Provider: {self.provider}, Model: {self.model}")
+
+        # Set up output parser for JSON responses
+        self.json_parser = JsonOutputParser()
 
     def _detect_provider(self) -> str:
         """Auto-detect which LLM provider to use based on env vars."""
@@ -95,17 +111,136 @@ class LLMProcessor:
 
         return ""
 
+    def _initialize_llm(self) -> Optional[BaseChatModel]:
+        """Initialize LangChain LLM based on provider.
+
+        Returns:
+            BaseChatModel instance for LangChain providers, None for command/rules
+        """
+        if self.provider == "rules":
+            return None
+
+        if self.provider == "command":
+            # Command provider doesn't use LangChain
+            return None
+
+        try:
+            if self.provider == "openai":
+                from langchain_openai import ChatOpenAI
+                api_key = os.environ.get("OPENAI_API_KEY")
+                if not api_key:
+                    logger.warning("[LLM INIT] OPENAI_API_KEY not set, cannot initialize LangChain")
+                    return None
+                return ChatOpenAI(
+                    model=self.model,
+                    temperature=self.TEMPERATURE,
+                    max_tokens=self.MAX_TOKENS,
+                    api_key=api_key
+                )
+
+            elif self.provider == "anthropic":
+                from langchain_anthropic import ChatAnthropic
+                api_key = os.environ.get("ANTHROPIC_API_KEY")
+                if not api_key:
+                    logger.warning("[LLM INIT] ANTHROPIC_API_KEY not set, cannot initialize LangChain")
+                    return None
+                return ChatAnthropic(
+                    model=self.model,
+                    temperature=self.TEMPERATURE,
+                    max_tokens=self.MAX_TOKENS,
+                    api_key=api_key
+                )
+
+            elif self.provider == "ollama":
+                from langchain_ollama import ChatOllama
+                host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+                return ChatOllama(
+                    model=self.model,
+                    temperature=self.TEMPERATURE,
+                    num_predict=self.MAX_TOKENS,
+                    base_url=host
+                )
+
+            else:
+                logger.warning(f"[LLM INIT] Unknown provider '{self.provider}', no LangChain LLM created")
+                return None
+
+        except ImportError as e:
+            logger.error(f"[LLM INIT] Failed to import LangChain provider: {e}")
+            raise ImportError(
+                f"LangChain {self.provider} integration not installed. "
+                f"Run: pip install langchain-{self.provider}"
+            )
+
+    def invoke(self, prompt: str) -> str:
+        """Invoke LLM with a simple string prompt (for RAG queries).
+
+        Args:
+            prompt: The prompt string
+
+        Returns:
+            LLM response as string
+        """
+        if self.llm:
+            # Use LangChain
+            logger.debug(f"[LLM INVOKE] Using LangChain with {self.provider}/{self.model}")
+            messages = [HumanMessage(content=prompt)]
+            response = self.llm.invoke(messages)
+            return response.content.strip()
+        elif self.provider == "ollama":
+            # Fallback to direct Ollama API
+            logger.debug(f"[LLM INVOKE] Using direct Ollama API")
+            return self._call_ollama_direct(prompt)
+        else:
+            raise RuntimeError(f"No LLM available for provider '{self.provider}'")
+
     def categorize_message(self, subject: str, body: str) -> Dict:
         """Return a classification dict for a message.
 
         Example return: {"labels": ["finance", "important"], "priority": "high", "summary": "Invoice payment reminder"}
         """
+        logger.debug(f"[LLM CATEGORIZE] Starting categorization")
+        logger.debug(f"[LLM CATEGORIZE] Provider: {self.provider}, Model: {self.model}")
+        logger.debug(f"[LLM CATEGORIZE] Subject: '{subject[:50]}...'")
+
         # Use rule-based for rules provider
         if self.provider == "rules":
+            logger.debug(f"[LLM CATEGORIZE] Using rule-based classification")
             return self._rule_based(subject, body)
 
-        # For non-rules providers, don't fall back - let the error propagate
-        return self._categorize_with_llm(subject, body)
+        # For non-rules providers, use LLM
+        logger.debug(f"[LLM CATEGORIZE] Using LLM-based classification")
+        try:
+            if self.llm:
+                # Use LangChain
+                result = self._categorize_with_langchain(subject, body)
+            else:
+                # Fallback for command provider
+                result = self._categorize_with_llm(subject, body)
+
+            logger.info(f"[LLM CATEGORIZE] ✓ Classification successful: {result.get('labels', [])}")
+            return result
+        except Exception as e:
+            logger.error(f"[LLM CATEGORIZE] ✗ Classification failed: {e}")
+            raise
+
+    def _categorize_with_langchain(self, subject: str, body: str) -> Dict:
+        """Use LangChain to categorize email."""
+        prompt = build_classification_prompt(subject, body)
+
+        messages = [
+            SystemMessage(content=CLASSIFICATION_SYSTEM_MESSAGE),
+            HumanMessage(content=prompt)
+        ]
+
+        logger.debug(f"[LLM LANGCHAIN] Invoking LLM...")
+        response = self.llm.invoke(messages)
+        content = response.content.strip()
+
+        logger.debug(f"[LLM LANGCHAIN] Response length: {len(content)} chars")
+
+        # Parse the response into our standard format
+        return self._parse_llm_response(content)
 
     def _categorize_with_llm(self, subject: str, body: str) -> Dict:
         """Common LLM categorization flow: build prompt → call provider → parse response."""
@@ -172,7 +307,11 @@ class LLMProcessor:
         return message.content[0].text.strip()
 
     def _call_ollama(self, prompt: str) -> str:
-        """Call Ollama API and return raw response text."""
+        """Call Ollama API (deprecated - use _call_ollama_direct instead)."""
+        return self._call_ollama_direct(prompt)
+
+    def _call_ollama_direct(self, prompt: str) -> str:
+        """Call Ollama API directly and return raw response text."""
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
         payload = {

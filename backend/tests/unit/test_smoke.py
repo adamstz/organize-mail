@@ -16,7 +16,7 @@ def test_can_import_api():
 
 def test_can_import_core_modules():
     """Verify all critical modules can be imported."""
-    from src.llm_processor import LLMProcessor
+    from src.services import LLMProcessor
     from src.storage import storage
     from src.models.message import MailMessage
     from src.models.classification_record import ClassificationRecord
@@ -27,10 +27,10 @@ def test_api_starts():
     """Verify API can start and respond to requests."""
     from src.api import app
     from src.storage import storage
-    
+
     # Initialize database first
     storage.init_db()
-    
+
     client = TestClient(app)
     response = client.get("/messages")
     assert response.status_code == 200
@@ -39,15 +39,15 @@ def test_api_starts():
 def test_llm_processor_works():
     """Verify LLM processor can classify (using fallback)."""
     import os
-    from src.llm_processor import LLMProcessor
-    
+    from src.services import LLMProcessor
+
     os.environ["LLM_PROVIDER"] = "rules"
     processor = LLMProcessor()
     result = processor.categorize_message(
         "Invoice Payment",
         "Please pay $100"
     )
-    
+
     assert isinstance(result, dict)
     assert "labels" in result
     assert "priority" in result

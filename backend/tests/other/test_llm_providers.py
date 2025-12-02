@@ -10,7 +10,7 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.llm_processor import LLMProcessor
+from src.services import LLMProcessor
 
 
 def simple_prompt(provider_name: str, prompt: str = "Say hello"):

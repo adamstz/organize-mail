@@ -17,7 +17,7 @@ from typing import List
 
 from .. import storage
 from ..models.message import MailMessage
-from ..llm_processor import LLMProcessor
+from ..services import LLMProcessor
 from ..models.classification_record import ClassificationRecord
 from datetime import datetime, timezone
 

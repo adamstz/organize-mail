@@ -9,8 +9,8 @@ require real API keys or running services.
 import os
 import json
 import pytest
-from src.llm_processor import LLMProcessor
-from src.llm_prompts import CLASSIFICATION_SYSTEM_MESSAGE, build_classification_prompt
+from src.services import LLMProcessor
+from src.services.prompt_templates import CLASSIFICATION_SYSTEM_MESSAGE, build_classification_prompt
 
 
 class TestLLMProcessorConstants:

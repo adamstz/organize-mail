@@ -8,9 +8,7 @@ from collections import deque
 from datetime import datetime
 
 from . import storage
-from .llm_processor import LLMProcessor
-from .embedding_service import EmbeddingService
-from .rag_engine import RAGQueryEngine
+from .services import LLMProcessor, EmbeddingService, RAGQueryEngine
 from .sync_manager import get_sync_manager
 
 app = FastAPI(title="organize-mail backend")
@@ -306,15 +304,6 @@ def _extract_html_from_payload(payload: dict, logger) -> str:
         logger.info(f"[MIME EXTRACTION] Found {len(html_parts)} HTML part(s) with sizes: {[len(p) for p in html_parts]}")
         longest = max(html_parts, key=len)
         logger.info(f"[MIME EXTRACTION] Selected longest HTML: {len(longest)} chars")
-
-        # Print actual content for debugging truncation
-        print("=" * 80)
-        print(f"[MIME] EXTRACTED HTML ({len(longest)} chars)")
-        print("=" * 80)
-        print(f"FIRST 1000 CHARS:\n{longest[:1000]}")
-        print("-" * 80)
-        print(f"LAST 1000 CHARS:\n{longest[-1000:]}")
-        print("=" * 80)
 
         # Log if there are images detected for debugging
         if '<img' in longest:
@@ -962,23 +951,45 @@ async def query_emails(request: QueryRequest) -> dict:
     }
     """
     import logging
+    import time
     logger = logging.getLogger("uvicorn")
+
+    print("=" * 80)
+    print(f"[API QUERY] Received query request")
+    print(f"[API QUERY] Question: '{request.question}'")
+    print(f"[API QUERY] Top K: {request.top_k}")
+    print(f"[API QUERY] Similarity Threshold: {request.similarity_threshold}")
 
     logger.info(f"[RAG QUERY] Question: {request.question}")
 
+    start_time = time.time()
+
     try:
+        print(f"[API QUERY] Getting RAG engine...")
         rag_engine = get_rag_engine()
+        print(f"[API QUERY] RAG engine obtained successfully")
+
+        print(f"[API QUERY] Calling RAG engine query...")
         result = rag_engine.query(
             question=request.question,
             top_k=request.top_k,
             similarity_threshold=request.similarity_threshold
         )
 
+        elapsed_time = time.time() - start_time
+        print(f"[API QUERY] ✓ Query completed in {elapsed_time:.2f}s")
+        print(f"[API QUERY] Answer: {result.get('answer', 'No answer')[:100]}...")
+        print(f"[API QUERY] Sources: {len(result.get('sources', []))}")
+        print(f"[API QUERY] Confidence: {result.get('confidence', 'unknown')}")
+        print(f"[API QUERY] Query type: {result.get('query_type', 'unknown')}")
+
         logger.info(f"[RAG QUERY] Answer generated with {len(result['sources'])} sources, confidence: {result['confidence']}")
 
         return result
 
     except Exception as e:
+        elapsed_time = time.time() - start_time
+        print(f"[API QUERY] ✗ Query failed after {elapsed_time:.2f}s: {str(e)}")
         logger.error(f"[RAG QUERY] Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 

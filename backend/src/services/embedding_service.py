@@ -42,14 +42,30 @@ class EmbeddingService:
         Returns:
             List of floats representing the embedding vector
         """
+        print(f"[EMBEDDING SERVICE] Starting text embedding")
+        print(f"[EMBEDDING SERVICE] Model: {self.model_name}")
+        print(f"[EMBEDDING SERVICE] Input text length: {len(text)} chars")
+        print(f"[EMBEDDING SERVICE] Input text preview: {text[:100]}...")
+
         # Truncate to max tokens to avoid model errors
+        original_length = len(text)
         text = self._truncate_text(text, self.MAX_TOKENS)
+        if len(text) != original_length:
+            print(f"[EMBEDDING SERVICE] Text truncated from {original_length} to {len(text)} chars")
 
-        # Generate embedding
-        embedding = self.model.encode(text, convert_to_numpy=True)
+        try:
+            # Generate embedding
+            print(f"[EMBEDDING SERVICE] Generating embedding with {self.model_name}...")
+            embedding = self.model.encode(text, convert_to_numpy=True)
 
-        # Convert to list for JSON serialization
-        return embedding.tolist()
+            # Convert to list for JSON serialization
+            result = embedding.tolist()
+            print(f"[EMBEDDING SERVICE] ✓ Embedding generated successfully")
+            print(f"[EMBEDDING SERVICE] Embedding dimensions: {len(result)}")
+            return result
+        except Exception as e:
+            print(f"[EMBEDDING SERVICE] ✗ Embedding generation failed: {e}")
+            raise
 
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """Embed multiple texts in a batch (more efficient than one-by-one).

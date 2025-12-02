@@ -74,32 +74,34 @@ QUERY_TO_LABEL_MAPPING = {
     'support': 'support',
 }
 
+
 def get_label_from_query(query: str) -> str | None:
     """Extract classification label from a query string.
-    
+
     Args:
         query: The user's query (case-insensitive matching will be applied)
-        
+
     Returns:
         The matching label, or None if no match found
     """
     query_lower = query.lower()
-    
+
     # Check for longest matches first to handle multi-word terms
     sorted_terms = sorted(QUERY_TO_LABEL_MAPPING.keys(), key=len, reverse=True)
-    
+
     for term in sorted_terms:
         if term in query_lower:
             return QUERY_TO_LABEL_MAPPING[term]
-    
+
     return None
+
 
 def is_classification_query(query: str) -> bool:
     """Check if a query is asking about classification labels.
-    
+
     Args:
         query: The user's query
-        
+
     Returns:
         True if the query appears to be asking about classified emails
     """

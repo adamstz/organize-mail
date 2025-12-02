@@ -34,6 +34,10 @@ const ChatInterface: React.FC = () => {
   const handleSend = async () => {
     if (!inputValue.trim() || isLoading) return;
 
+    console.log('[CHAT INTERFACE] Starting new chat message');
+    console.log(`[CHAT INTERFACE] User input: "${inputValue}"`);
+    console.log(`[CHAT INTERFACE] Input length: ${inputValue.length} characters`);
+
     const userMessage: ChatMessageType = {
       id: Date.now().toString(),
       type: 'user',
@@ -46,12 +50,14 @@ const ChatInterface: React.FC = () => {
     setIsLoading(true);
 
     logger.info(`Sending chat query: ${inputValue}`);
+    console.log('[CHAT INTERFACE] Query parameters: top_k=5, similarity_threshold=0.3');
 
     try {
       // Create AbortController with 5 minute timeout for LLM processing
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes
 
+      console.log('[CHAT INTERFACE] Sending request to /api/query');
       const response = await fetch('/api/query', {
         method: 'POST',
         headers: {
@@ -67,11 +73,19 @@ const ChatInterface: React.FC = () => {
 
       clearTimeout(timeoutId);
 
+      console.log(`[CHAT INTERFACE] Response received: status=${response.status}, ok=${response.ok}`);
+
       if (!response.ok) {
+        console.error(`[CHAT INTERFACE] HTTP error: ${response.status} ${response.statusText}`);
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       const data = await response.json();
+      console.log('[CHAT INTERFACE] Response data:', data);
+      console.log(`[CHAT INTERFACE] Answer length: ${data.answer?.length || 0} characters`);
+      console.log(`[CHAT INTERFACE] Sources count: ${data.sources?.length || 0}`);
+      console.log(`[CHAT INTERFACE] Confidence: ${data.confidence}`);
+      console.log(`[CHAT INTERFACE] Query type: ${data.query_type}`);
 
       logger.info(`Chat query successful: ${data.sources?.length || 0} sources, confidence: ${data.confidence}`);
 

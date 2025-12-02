@@ -19,13 +19,19 @@ class ContextBuilder:
         Returns:
             Formatted context string for LLM
         """
+        print(f"[CONTEXT BUILDER] Building context from {len(similar_emails)} similar emails")
         context_parts = []
 
         for idx, (email, score) in enumerate(similar_emails, 1):
+            print(f"[CONTEXT BUILDER] Processing email {idx}: '{email.subject[:50]}...' (score: {score:.3f})")
             email_context = self._format_email_with_score(idx, email, score)
             context_parts.append(email_context)
+            print(f"[CONTEXT BUILDER] Email {idx} context length: {len(email_context)} chars")
 
-        return "\n".join(context_parts)
+        final_context = "\n".join(context_parts)
+        print(f"[CONTEXT BUILDER] Final context built: {len(final_context)} characters total")
+        print(f"[CONTEXT BUILDER] Context preview: {final_context[:300]}...")
+        return final_context
 
     def build_context_from_messages(self, messages: List) -> str:
         """Build context string from messages (without similarity scores).

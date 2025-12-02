@@ -16,9 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import pytest
 from src.storage.storage import get_storage_backend
 from src.storage.memory_storage import InMemoryStorage
-from src.embedding_service import EmbeddingService
-from src.llm_processor import LLMProcessor
-from src.rag_engine import RAGQueryEngine
+from src.services import EmbeddingService, LLMProcessor, RAGQueryEngine
 
 
 def print_banner(text):

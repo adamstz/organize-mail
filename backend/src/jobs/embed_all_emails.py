@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
 from src.storage.storage import get_storage_backend  # noqa: E402
-from src.embedding_service import EmbeddingService  # noqa: E402
+from src.services import EmbeddingService  # noqa: E402
 from tqdm import tqdm  # noqa: E402
 
 

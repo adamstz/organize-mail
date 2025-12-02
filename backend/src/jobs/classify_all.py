@@ -18,7 +18,7 @@ import time
 
 from ..models.message import MailMessage
 from .. import storage
-from ..llm_processor import LLMProcessor
+from ..services import LLMProcessor
 
 
 def is_classified(msg: MailMessage) -> bool:
