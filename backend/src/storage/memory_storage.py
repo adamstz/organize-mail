@@ -231,3 +231,88 @@ class InMemoryStorage(StorageBackend):
         # Apply pagination
         paginated = filtered[offset:offset + limit]
         return paginated, total
+
+    # RAG query support methods - stubs for testing
+    def search_by_sender(self, sender: str, limit: int = 100) -> List[MailMessage]:
+        """Search for messages from a specific sender."""
+        sender_lower = sender.lower()
+        filtered = [
+            msg for msg in self._messages.values()
+            if msg.from_ and sender_lower in msg.from_.lower()
+        ]
+        # Sort by internal_date descending (most recent first)
+        filtered.sort(key=lambda m: m.internal_date or 0, reverse=True)
+        return filtered[:limit]
+
+    def search_by_attachment(self, limit: int = 100) -> List[MailMessage]:
+        """Search for messages that have attachments."""
+        filtered = [
+            msg for msg in self._messages.values()
+            if msg.has_attachments
+        ]
+        filtered.sort(key=lambda m: m.internal_date or 0, reverse=True)
+        return filtered[:limit]
+
+    def search_by_keywords(self, keywords: List[str], limit: int = 100) -> List[MailMessage]:
+        """Search for messages matching any of the keywords."""
+        if not keywords:
+            return []
+
+        def matches_any_keyword(msg: MailMessage) -> bool:
+            text = f"{msg.subject or ''} {msg.from_ or ''} {msg.snippet or ''}".lower()
+            return any(kw.lower() in text for kw in keywords)
+
+        filtered = [msg for msg in self._messages.values() if matches_any_keyword(msg)]
+        filtered.sort(key=lambda m: m.internal_date or 0, reverse=True)
+        return filtered[:limit]
+
+    def count_by_topic(self, topic: str) -> int:
+        """Count messages matching a topic."""
+        topic_lower = topic.lower()
+        count = 0
+        for msg in self._messages.values():
+            text = f"{msg.subject or ''} {msg.from_ or ''} {msg.snippet or ''}".lower()
+            if topic_lower in text:
+                count += 1
+        return count
+
+    def get_daily_email_stats(self, days: int = 30) -> List[dict]:
+        """Get email count statistics per day."""
+        # Simple implementation - group by date
+        from collections import defaultdict
+        from datetime import datetime
+
+        date_counts = defaultdict(int)
+        for msg in self._messages.values():
+            if msg.internal_date:
+                dt = datetime.fromtimestamp(msg.internal_date / 1000)
+                date_str = dt.strftime('%Y-%m-%d')
+                date_counts[date_str] += 1
+
+        # Sort by date descending and limit
+        sorted_dates = sorted(date_counts.items(), reverse=True)[:days]
+        return [{'date': d, 'count': c} for d, c in sorted_dates]
+
+    def get_top_senders(self, limit: int = 10) -> List[dict]:
+        """Get top email senders by message count."""
+        from collections import Counter
+
+        sender_counts = Counter(
+            msg.from_ for msg in self._messages.values() if msg.from_
+        )
+        return [
+            {'from_addr': addr, 'count': count}
+            for addr, count in sender_counts.most_common(limit)
+        ]
+
+    def get_total_message_count(self) -> int:
+        """Get total number of messages."""
+        return len(self._messages)
+
+    def get_unread_count(self) -> int:
+        """Get count of unread messages."""
+        count = 0
+        for msg in self._messages.values():
+            if msg.labels and 'UNREAD' in msg.labels:
+                count += 1
+        return count

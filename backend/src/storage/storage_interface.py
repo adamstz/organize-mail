@@ -101,3 +101,88 @@ class StorageBackend:
         Returns tuple of (messages, total_count).
         """
         raise NotImplementedError()
+
+    # RAG query support methods
+    def search_by_sender(self, sender: str, limit: int = 100) -> List[MailMessage]:
+        """Search for messages from a specific sender.
+
+        Args:
+            sender: Sender name or email (partial match with ILIKE)
+            limit: Maximum number of results
+
+        Returns:
+            List of matching messages, sorted by date descending.
+        """
+        raise NotImplementedError()
+
+    def search_by_attachment(self, limit: int = 100) -> List[MailMessage]:
+        """Search for messages that have attachments.
+
+        Args:
+            limit: Maximum number of results
+
+        Returns:
+            List of messages with attachments, sorted by date descending.
+        """
+        raise NotImplementedError()
+
+    def search_by_keywords(self, keywords: List[str], limit: int = 100) -> List[MailMessage]:
+        """Search for messages matching any of the keywords.
+
+        Args:
+            keywords: List of keywords to search for in subject, from_addr, or snippet
+            limit: Maximum number of results
+
+        Returns:
+            List of matching messages, sorted by date descending.
+        """
+        raise NotImplementedError()
+
+    def count_by_topic(self, topic: str) -> int:
+        """Count messages matching a topic in subject, from_addr, or snippet.
+
+        Args:
+            topic: Topic string to search for (partial match)
+
+        Returns:
+            Count of matching messages.
+        """
+        raise NotImplementedError()
+
+    def get_daily_email_stats(self, days: int = 30) -> List[dict]:
+        """Get email count statistics per day.
+
+        Args:
+            days: Number of days to look back
+
+        Returns:
+            List of dicts with 'date' and 'count' keys.
+        """
+        raise NotImplementedError()
+
+    def get_top_senders(self, limit: int = 10) -> List[dict]:
+        """Get top email senders by message count.
+
+        Args:
+            limit: Number of top senders to return
+
+        Returns:
+            List of dicts with 'from_addr' and 'count' keys.
+        """
+        raise NotImplementedError()
+
+    def get_total_message_count(self) -> int:
+        """Get total number of messages in the database.
+
+        Returns:
+            Total message count.
+        """
+        raise NotImplementedError()
+
+    def get_unread_count(self) -> int:
+        """Get count of unread messages.
+
+        Returns:
+            Count of messages with UNREAD label.
+        """
+        raise NotImplementedError()

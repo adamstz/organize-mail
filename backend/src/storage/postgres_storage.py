@@ -34,6 +34,34 @@ class PostgresStorage(StorageBackend):
         conn = psycopg2.connect(self.db_url)
         return conn
 
+    def _row_to_mail_message(self, row: dict) -> MailMessage:
+        """Convert a database row to a MailMessage object.
+
+        Args:
+            row: Dict from RealDictCursor with message columns and optional
+                 class_labels, class_priority, class_summary from joined classification.
+
+        Returns:
+            MailMessage instance.
+        """
+        return MailMessage(
+            id=row['id'],
+            thread_id=row['thread_id'],
+            from_=row['from_addr'],
+            to=row['to_addr'],
+            subject=row['subject'],
+            snippet=row['snippet'],
+            labels=row['labels'],
+            internal_date=row['internal_date'],
+            payload=row['payload'],
+            raw=row['raw'],
+            headers=row['headers'] or {},
+            classification_labels=row.get('class_labels'),
+            priority=row.get('class_priority'),
+            summary=row.get('class_summary'),
+            has_attachments=row.get('has_attachments') or False,
+        )
+
     def init_db(self) -> None:
         """Initialize database tables and indexes."""
         conn = self.connect()
@@ -1082,25 +1110,183 @@ class PostgresStorage(StorageBackend):
         cur.close()
         conn.close()
 
-        messages = []
-        for r in rows:
-            messages.append(
-                MailMessage(
-                    id=r['id'],
-                    thread_id=r['thread_id'],
-                    from_=r['from_addr'],
-                    to=r['to_addr'],
-                    subject=r['subject'],
-                    snippet=r['snippet'],
-                    labels=r['labels'],
-                    internal_date=r['internal_date'],
-                    payload=r['payload'],
-                    raw=r['raw'],
-                    headers=r['headers'] or {},
-                    classification_labels=r['class_labels'],
-                    priority=r['class_priority'],
-                    summary=r['class_summary'],
-                    has_attachments=r['has_attachments'] or False,
-                )
-            )
+        messages = [self._row_to_mail_message(r) for r in rows]
         return messages, total
+
+    # ==========================================================================
+    # RAG QUERY SUPPORT METHODS
+    # ==========================================================================
+
+    def search_by_sender(self, sender: str, limit: int = 100) -> List[MailMessage]:
+        """Search for messages from a specific sender."""
+        conn = self.connect()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            """
+            SELECT m.*,
+                   c.labels as class_labels,
+                   c.priority as class_priority,
+                   c.summary as class_summary
+            FROM messages m
+            LEFT JOIN classifications c ON m.latest_classification_id = c.id
+            WHERE from_addr ILIKE %s
+            ORDER BY m.internal_date DESC
+            LIMIT %s
+            """,
+            (f'%{sender}%', limit)
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return [self._row_to_mail_message(r) for r in rows]
+
+    def search_by_attachment(self, limit: int = 100) -> List[MailMessage]:
+        """Search for messages that have attachments."""
+        conn = self.connect()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            """
+            SELECT m.*,
+                   c.labels as class_labels,
+                   c.priority as class_priority,
+                   c.summary as class_summary
+            FROM messages m
+            LEFT JOIN classifications c ON m.latest_classification_id = c.id
+            WHERE m.has_attachments = TRUE
+            ORDER BY m.internal_date DESC
+            LIMIT %s
+            """,
+            (limit,)
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return [self._row_to_mail_message(r) for r in rows]
+
+    def search_by_keywords(self, keywords: List[str], limit: int = 100) -> List[MailMessage]:
+        """Search for messages matching any of the keywords."""
+        if not keywords:
+            return []
+
+        conn = self.connect()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Build WHERE clause for keyword matching
+        where_clauses = []
+        params = []
+        for keyword in keywords:
+            where_clauses.append("(subject ILIKE %s OR from_addr ILIKE %s OR snippet ILIKE %s)")
+            params.extend([f'%{keyword}%', f'%{keyword}%', f'%{keyword}%'])
+
+        cur.execute(
+            f"""
+            SELECT m.*,
+                   c.labels as class_labels,
+                   c.priority as class_priority,
+                   c.summary as class_summary
+            FROM messages m
+            LEFT JOIN classifications c ON m.latest_classification_id = c.id
+            WHERE {' OR '.join(where_clauses)}
+            ORDER BY m.internal_date DESC
+            LIMIT %s
+            """,
+            params + [limit]
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return [self._row_to_mail_message(r) for r in rows]
+
+    def count_by_topic(self, topic: str) -> int:
+        """Count messages matching a topic in subject, from_addr, or snippet."""
+        conn = self.connect()
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT COUNT(*) as count
+            FROM messages
+            WHERE subject ILIKE %s OR from_addr ILIKE %s OR snippet ILIKE %s
+            """,
+            (f'%{topic}%', f'%{topic}%', f'%{topic}%')
+        )
+        count = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+
+        return count
+
+    def get_daily_email_stats(self, days: int = 30) -> List[dict]:
+        """Get email count statistics per day."""
+        conn = self.connect()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            """
+            SELECT
+                DATE(to_timestamp(internal_date/1000)) as date,
+                COUNT(*) as count
+            FROM messages
+            WHERE internal_date IS NOT NULL
+            GROUP BY date
+            ORDER BY date DESC
+            LIMIT %s
+            """,
+            (days,)
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return [{'date': r['date'], 'count': r['count']} for r in rows]
+
+    def get_top_senders(self, limit: int = 10) -> List[dict]:
+        """Get top email senders by message count."""
+        conn = self.connect()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            """
+            SELECT from_addr, COUNT(*) as count
+            FROM messages
+            WHERE from_addr IS NOT NULL
+            GROUP BY from_addr
+            ORDER BY count DESC
+            LIMIT %s
+            """,
+            (limit,)
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return [{'from_addr': r['from_addr'], 'count': r['count']} for r in rows]
+
+    def get_total_message_count(self) -> int:
+        """Get total number of messages in the database."""
+        conn = self.connect()
+        cur = conn.cursor()
+
+        cur.execute("SELECT COUNT(*) FROM messages")
+        count = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+
+        return count
+
+    def get_unread_count(self) -> int:
+        """Get count of unread messages."""
+        conn = self.connect()
+        cur = conn.cursor()
+
+        cur.execute("SELECT COUNT(*) FROM messages WHERE labels::text LIKE '%UNREAD%'")
+        count = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+
+        return count

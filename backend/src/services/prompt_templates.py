@@ -277,7 +277,7 @@ KEYWORD_EXTRACTION_PROMPT = """Extract search keywords from this query in ONE li
 
 Extract ONLY the important content words (people, companies, topics, products).
 Remove time words (recent, latest, last, newest).
-Return 2-4 keywords separated by spaces.
+Return 1-3 keywords separated by commas.
 
 Keywords:"""
 
@@ -286,11 +286,46 @@ Keywords:"""
 # SENDER EXTRACTION PROMPTS
 # =============================================================================
 
-SENDER_EXTRACTION_PROMPT = """Extract the sender name/email from this query:
+SENDER_EXTRACTION_PROMPT = """Extract the sender name or email address from this query.
+Return ONLY the sender name/email, nothing else.
 
-"{question}"
+Query: "{question}"
 
-Return ONLY the sender name or email address, nothing else.
-If no sender mentioned, return "unknown".
+Examples:
+- "emails from uber" → uber
+- "all from amazon" → amazon
+- "linkedin messages" → linkedin
+- "john@company.com emails" → john@company.com
+- "show me uber eats emails" → uber eats
+- "all my google mail" → google
+
+Important:
+- Return the sender name EXACTLY as mentioned
+- If it's a company with multiple words (like "uber eats"), return both words
+- Do NOT return other words from the query like "the", "my", "show", etc.
+- Return ONLY the sender name
 
 Sender:"""
+
+
+# =============================================================================
+# TOPIC EXTRACTION PROMPTS
+# =============================================================================
+
+TOPIC_EXTRACTION_PROMPT = """You are extracting a company or sender name from a user's question.
+Extract ONLY the company/sender name.
+
+User's question: "{question}"
+
+Instructions:
+- Look at the question and identify the company, service, or sender name mentioned
+- Return ONLY that name, nothing else
+- Do not say "not provided" or similar - extract what IS in the question
+
+Examples:
+Question: "how many uber eats emails do I have" → Answer: uber eats
+Question: "how many amazon mails" → Answer: amazon
+Question: "count my linkedin messages" → Answer: linkedin
+Question: "how many github emails" → Answer: github
+
+Now extract from the user's question above. Return ONLY the company/sender name:"""

@@ -13,16 +13,6 @@ React + TypeScript frontend for the Organize Mail application. Provides an intui
 - **Ollama Integration**: Automatically detect and start local Ollama service when needed
 - **Responsive UI**: Material-UI components with dark theme and resizable panels
 
-<!-- TODO: Add screenshots here -->
-![Email List View](docs/images/email-list.png)
-*Email list with filtering and classification labels*
-
-![Chat Interface](docs/images/chat-interface.png)
-*RAG-powered chat interface for querying email history*
-
-![Log Viewer](docs/images/log-viewer.png)
-*Real-time log viewer with WebSocket streaming*
-
 ## Architecture
 
 ```
@@ -34,7 +24,7 @@ frontend/
 │   │   ├── EmailToolbar.tsx      # Filters, search, model selection
 │   │   ├── ChatInterface.tsx     # RAG chat UI
 │   │   ├── LogViewer.tsx         # Real-time log streaming
-│   │   └── Stats.tsx             # Classification statistics
+│   │   └── SyncStatus.tsx        # Sync status display
 │   ├── utils/
 │   │   └── logger.ts             # Frontend logging utility
 │   ├── types/
@@ -81,7 +71,7 @@ The frontend uses Vite for fast development with HMR (Hot Module Replacement) an
 - **EmailItem**: Shows individual email with metadata, classification, and reclassify button
 - **ChatInterface**: RAG chat with query input, streaming responses, and source citations
 - **LogViewer**: Real-time log viewer with WebSocket connection, filtering, and controls
-- **Stats**: Dashboard showing classification statistics by label and priority
+- **SyncStatus**: Displays current sync and classification status
 
 ### Logging
 
