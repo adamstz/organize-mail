@@ -1,5 +1,4 @@
 """Query classifier for routing queries to appropriate handlers."""
-from typing import Optional
 import logging
 
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -69,6 +68,9 @@ class QueryClassifier:
             ]
             response = self.llm.llm.invoke(messages)
             return response.content.strip()
+        elif self.llm.provider == "rules":
+            # Rules provider doesn't have real LLM, force fallback classification
+            raise RuntimeError("Rules provider - use fallback classification")
         else:
             return self.llm.invoke(prompt)
 

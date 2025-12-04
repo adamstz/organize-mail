@@ -1,5 +1,5 @@
 """Handler for semantic (content-based) queries using vector search."""
-from typing import Dict, List
+from typing import Dict
 import logging
 
 from .base import QueryHandler
@@ -156,62 +156,6 @@ class SemanticHandler(QueryHandler):
             query_type='semantic',
             confidence=confidence,
         )
-
-    def find_similar_emails(self, message_id: str, limit: int = 5) -> List[Dict]:
-        """Find emails similar to a given email.
-
-        Args:
-            message_id: ID of the email to find similar emails for
-            limit: Number of similar emails to return
-
-        Returns:
-            List of similar email metadata with similarity scores
-        """
-        # Get the email
-        message = self.storage.get_message_by_id(message_id)
-        if not message:
-            return []
-
-        # Get its embedding from database
-        conn = self.storage.connect()
-        cur = conn.cursor()
-
-        cur.execute(
-            "SELECT embedding FROM messages WHERE id = %s AND embedding IS NOT NULL",
-            (message_id,)
-        )
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-
-        if not row or not row[0]:
-            return []
-
-        embedding = row[0]
-
-        # Search for similar (excluding the original)
-        similar_emails = self.storage.similarity_search(
-            query_embedding=embedding,
-            limit=limit + 1,
-            threshold=0.5
-        )
-
-        # Filter out the original email
-        similar_emails = [(msg, score) for msg, score in similar_emails if msg.id != message_id]
-
-        # Format results
-        return [
-            {
-                'message_id': msg.id,
-                'subject': msg.subject,
-                'from': msg.from_,
-                'snippet': msg.snippet,
-                'similarity': float(score),
-                'date': msg.internal_date,
-                'labels': msg.classification_labels or []
-            }
-            for msg, score in similar_emails[:limit]
-        ]
 
     def _generate_answer(self, question: str, context: str) -> str:
         """Generate answer using LLM with email context."""

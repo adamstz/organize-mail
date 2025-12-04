@@ -48,7 +48,42 @@ Location: `backend/src/jobs/`
 
 These scripts are intended to be run manually, by cron, or by orchestration systems (Kubernetes CronJob, runners, etc.). They are plain Python modules you can run with `python -m src.jobs.<name>` from the `backend` directory.
 
-### 2) LLM Processor
+### 2) Cloudflare Postgres Tunnel
+File: `backend/cloudflared_postgres.sh`
+
+A utility script that creates a local proxy to a PostgreSQL database protected by Cloudflare Access. This is useful when the database is behind Cloudflare Zero Trust and you need to connect from a local development environment.
+
+Usage:
+
+```bash
+# Start tunnel in background
+./cloudflared_postgres.sh
+
+# Stop the tunnel
+./cloudflared_postgres.sh stop
+
+# Check tunnel status
+./cloudflared_postgres.sh status
+
+# Restart the tunnel
+./cloudflared_postgres.sh restart
+```
+
+Environment variables:
+- `CLOUDFLARE_ACCESS_URL` — Required. The Cloudflare Access URL (e.g., `https://db.example.com`)
+- `POSTGRES_USER` — PostgreSQL username (default: `postgres`)
+- `POSTGRES_DB` — PostgreSQL database name (default: `postgres`)
+- `LOCAL_PORT` — Local port to bind the proxy to (default: `5433`)
+
+Once running, connect to the proxied database:
+
+```bash
+psql -h localhost -p 5433 -U postgres -d postgres
+```
+
+The script manages a PID file at `/tmp/cloudflared_postgres.pid` and logs to `/tmp/cloudflared_postgres.log`.
+
+### 3) LLM Processor
 File: `backend/src/services/llm_processor.py`
 
 - Abstracts support for multiple LLM providers and fallbacks:
@@ -62,12 +97,14 @@ Key behaviours and defaults (verify in code):
 - TIMEOUT: 60s (increased for local/slow models)
 - Output parsing: accepts JSON returned in plain text or inside markdown code fences
 
-### 3) RAG Q&A Engine
+### 4) RAG Q&A Engine
 File: `backend/src/services/rag_engine.py`
 
-- Workflow: embed question → vector search → build context → call LLM to generate answer → return answer + sources.
-- Detects query types (conversation, aggregation, search-by-sender, temporal filters, classification) using `is_classification_query` & LLM helper.
-- Uses `ContextBuilder` and `EmbeddingService`.
+- Workflow: user question → classify query type → route to handler → handler processes and returns response.
+- Query types supported: conversation, aggregation, search-by-sender, search-by-attachment, classification, temporal, filtered-temporal, semantic.
+- Uses `QueryClassifier` to detect query type, then delegates to specialized handlers in `backend/src/services/query_handlers/`.
+- Handlers: `ConversationHandler`, `AggregationHandler`, `SenderHandler`, `AttachmentHandler`, `ClassificationHandler`, `TemporalHandler`, `SemanticHandler`.
+- Each handler uses `ContextBuilder` to format email data and `LLMProcessor` to generate natural language responses.
 
 ---
 

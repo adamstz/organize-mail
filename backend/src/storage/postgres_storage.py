@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import psycopg2
-from psycopg2.extras import RealDictCursor, Json
+from psycopg2.extras import RealDictCursor, Json, execute_values
 
 from ..models.message import MailMessage
 from .storage_interface import StorageBackend
@@ -280,50 +281,63 @@ class PostgresStorage(StorageBackend):
         conn.close()
 
     def save_messages_batch(self, msgs: List[MailMessage]) -> None:
-        """Save multiple messages in a single transaction for better performance."""
+        """Save multiple messages in a single transaction using batch insert.
+
+        Uses execute_values for efficient bulk inserts - sends all data in one
+        network roundtrip instead of one per message.
+        """
         if not msgs:
             return
 
         conn = self.connect()
         cur = conn.cursor()
+        now = datetime.now(timezone.utc)
 
-        for msg in msgs:
-            cur.execute(
-                """
-                INSERT INTO messages
-                (id, thread_id, from_addr, to_addr, subject, snippet, labels,
-                 internal_date, payload, raw, headers, fetched_at, has_attachments)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (id) DO UPDATE SET
-                    thread_id = EXCLUDED.thread_id,
-                    from_addr = EXCLUDED.from_addr,
-                    to_addr = EXCLUDED.to_addr,
-                    subject = EXCLUDED.subject,
-                    snippet = EXCLUDED.snippet,
-                    labels = EXCLUDED.labels,
-                    internal_date = EXCLUDED.internal_date,
-                    payload = EXCLUDED.payload,
-                    raw = EXCLUDED.raw,
-                    headers = EXCLUDED.headers,
-                    fetched_at = EXCLUDED.fetched_at,
-                    has_attachments = EXCLUDED.has_attachments
-                """,
-                (
-                    msg.id,
-                    msg.thread_id,
-                    msg.from_,
-                    msg.to,
-                    msg.subject,
-                    msg.snippet,
-                    Json(msg.labels),
-                    msg.internal_date,
-                    Json(msg.payload),
-                    msg.raw,
-                    Json(msg.headers),
-                    datetime.now(timezone.utc),
-                    msg.has_attachments,
-                ),
+        # Prepare data for batch insert
+        values = [
+            (
+                msg.id,
+                msg.thread_id,
+                msg.from_,
+                msg.to,
+                msg.subject,
+                msg.snippet,
+                Json(msg.labels),
+                msg.internal_date,
+                Json(msg.payload),
+                msg.raw,
+                Json(msg.headers),
+                now,
+                msg.has_attachments,
             )
+            for msg in msgs
+        ]
+
+        # Use execute_values for efficient batch insert
+        execute_values(
+            cur,
+            """
+            INSERT INTO messages
+            (id, thread_id, from_addr, to_addr, subject, snippet, labels,
+             internal_date, payload, raw, headers, fetched_at, has_attachments)
+            VALUES %s
+            ON CONFLICT (id) DO UPDATE SET
+                thread_id = EXCLUDED.thread_id,
+                from_addr = EXCLUDED.from_addr,
+                to_addr = EXCLUDED.to_addr,
+                subject = EXCLUDED.subject,
+                snippet = EXCLUDED.snippet,
+                labels = EXCLUDED.labels,
+                internal_date = EXCLUDED.internal_date,
+                payload = EXCLUDED.payload,
+                raw = EXCLUDED.raw,
+                headers = EXCLUDED.headers,
+                fetched_at = EXCLUDED.fetched_at,
+                has_attachments = EXCLUDED.has_attachments
+            """,
+            values,
+            page_size=100,
+        )
 
         conn.commit()
         cur.close()
@@ -401,8 +415,6 @@ class PostgresStorage(StorageBackend):
 
         Returns the classification ID.
         """
-        import uuid
-
         classification_id = str(uuid.uuid4())
         created_at = datetime.now(timezone.utc)
 
@@ -442,6 +454,79 @@ class PostgresStorage(StorageBackend):
         conn.close()
 
         return classification_id
+
+    def create_classifications_batch(
+        self,
+        classifications: List[Tuple[str, List[str], str, str, Optional[str]]]
+    ) -> List[str]:
+        """Create multiple classification records in a single transaction.
+
+        Uses batch insert for classifications and batch update for messages,
+        significantly reducing network roundtrips.
+
+        Args:
+            classifications: List of tuples (message_id, labels, priority, summary, model)
+
+        Returns:
+            List of classification IDs created.
+        """
+        if not classifications:
+            return []
+
+        conn = self.connect()
+        cur = conn.cursor()
+        created_at = datetime.now(timezone.utc)
+
+        # Generate IDs and prepare batch data
+        classification_ids = []
+        classification_values = []
+        update_values = []
+
+        for message_id, labels, priority, summary, model in classifications:
+            classification_id = str(uuid.uuid4())
+            classification_ids.append(classification_id)
+            classification_values.append((
+                classification_id,
+                message_id,
+                Json(labels),
+                priority,
+                summary,
+                model,
+                created_at,
+            ))
+            update_values.append((classification_id, message_id))
+
+        # Batch insert classifications
+        execute_values(
+            cur,
+            """
+            INSERT INTO classifications
+            (id, message_id, labels, priority, summary, model, created_at)
+            VALUES %s
+            """,
+            classification_values,
+            page_size=100,
+        )
+
+        # Batch update messages to point to their classifications
+        # Using a temp table approach for efficient batch update
+        execute_values(
+            cur,
+            """
+            UPDATE messages AS m
+            SET latest_classification_id = v.classification_id
+            FROM (VALUES %s) AS v(classification_id, message_id)
+            WHERE m.id = v.message_id
+            """,
+            update_values,
+            page_size=100,
+        )
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return classification_ids
 
     def update_message_latest_classification(self, message_id: str, classification_id: str) -> None:
         """Update the latest_classification_id for a message."""

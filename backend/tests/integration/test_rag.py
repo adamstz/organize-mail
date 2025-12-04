@@ -6,6 +6,7 @@ This script demonstrates:
 2. Performing semantic search
 3. Asking questions about emails
 4. Finding similar emails
+5. Handler routing (unit-test style, works with InMemoryStorage)
 """
 import sys
 import os
@@ -13,10 +14,22 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+os.environ["LLM_PROVIDER"] = "rules"
+os.environ.pop("OPENAI_API_KEY", None)
+os.environ.pop("ANTHROPIC_API_KEY", None)
+os.environ.pop("OLLAMA_HOST", None)
+os.environ.pop("ORGANIZE_MAIL_LLM_CMD", None)
+
 import pytest
 from src.storage.storage import get_storage_backend
 from src.storage.memory_storage import InMemoryStorage
 from src.services import EmbeddingService, LLMProcessor, RAGQueryEngine
+from src.services.query_classifier import QueryClassifier
+from src.services.context_builder import ContextBuilder
+from src.services.query_handlers.conversation import ConversationHandler
+from src.services.query_handlers.aggregation import AggregationHandler
+from src.services.query_handlers.temporal import TemporalHandler
+from src.models.message import MailMessage
 
 
 def print_banner(text):
@@ -26,6 +39,10 @@ def print_banner(text):
     print("=" * 70 + "\n")
 
 
+@pytest.mark.skipif(
+    not os.environ.get("STORAGE_BACKEND"),
+    reason="STORAGE_BACKEND not set - these tests require PostgreSQL"
+)
 def test_embedding_status():
     """Check how many emails have been embedded."""
     print_banner("1. Checking Embedding Status")
@@ -68,6 +85,10 @@ def test_embedding_status():
     assert total >= 0  # Just verify we could query the database
 
 
+@pytest.mark.skipif(
+    not os.environ.get("STORAGE_BACKEND"),
+    reason="STORAGE_BACKEND not set - these tests require PostgreSQL"
+)
 def test_semantic_search():
     """Test vector similarity search."""
     print_banner("2. Testing Semantic Search")
@@ -104,6 +125,10 @@ def test_semantic_search():
         print()
 
 
+@pytest.mark.skipif(
+    not os.environ.get("STORAGE_BACKEND"),
+    reason="STORAGE_BACKEND not set - these tests require PostgreSQL"
+)
 def test_rag_query():
     """Test RAG question answering."""
     print_banner("3. Testing RAG Question Answering")
@@ -148,48 +173,6 @@ def test_rag_query():
         print()
 
 
-def test_find_similar():
-    """Find similar emails."""
-    print_banner("4. Testing Find Similar Emails")
-    
-    storage = get_storage_backend()
-    if isinstance(storage, InMemoryStorage):
-        pytest.skip("RAG tests require PostgreSQL storage backend")
-    if isinstance(storage, InMemoryStorage):
-        pytest.skip("RAG tests require PostgreSQL storage backend")
-    embedder = EmbeddingService()
-    llm = LLMProcessor()
-    rag_engine = RAGQueryEngine(storage, embedder, llm)
-    
-    # Get a sample message
-    messages = storage.list_messages(limit=1)
-    if not messages:
-        print("No messages found in database.")
-        return
-    
-    sample_message = messages[0]
-    print(f"Finding emails similar to:")
-    print(f"  Subject: {sample_message.subject or 'No subject'}")
-    print(f"  From: {sample_message.from_ or 'Unknown'}")
-    print()
-    
-    # Find similar
-    similar = rag_engine.find_similar_emails(sample_message.id, limit=5)
-    
-    if not similar:
-        print("No similar emails found.")
-        return
-    
-    print(f"Found {len(similar)} similar emails:\n")
-    
-    for idx, email_data in enumerate(similar, 1):
-        print(f"{idx}. [Similarity: {email_data['similarity']:.3f}]")
-        print(f"   Subject: {email_data['subject'] or 'No subject'}")
-        print(f"   From: {email_data['from']}")
-        print(f"   Labels: {', '.join(email_data['labels']) if email_data['labels'] else 'None'}")
-        print()
-
-
 def main():
     """Run all RAG tests."""
     print("\n" + "🚀" * 35)
@@ -208,15 +191,11 @@ def main():
         # Test 3: RAG Q&A
         test_rag_query()
         
-        # Test 4: Find similar
-        test_find_similar()
-        
         print_banner("🎉 All Tests Complete!")
         print("Your RAG system is working!\n")
         print("Next steps:")
         print("  • Use the API endpoints to integrate with your frontend")
         print("  • POST /api/query - Ask questions")
-        print("  • GET /api/similar/{id} - Find similar emails")
         print("  • GET /api/embedding_status - Check coverage")
         print()
     
@@ -228,3 +207,164 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ============================================================================
+# Handler Routing Integration Tests (work with InMemoryStorage)
+# ============================================================================
+
+@pytest.fixture
+def memory_rag_engine():
+    """Create a RAG engine with InMemoryStorage for handler routing tests."""
+    storage = InMemoryStorage()
+    storage.init_db()
+    
+    # Add some test emails
+    base_ts = 1733050800000
+    day_ms = 86400000
+    
+    emails = [
+        MailMessage(
+            id="uber1",
+            from_="noreply@uber.com",
+            subject="Your Uber Eats order",
+            snippet="Order is on the way",
+            labels=["INBOX", "UNREAD"],
+            internal_date=base_ts,
+        ),
+        MailMessage(
+            id="amazon1",
+            from_="amazon@amazon.com",
+            subject="Your Amazon order shipped",
+            snippet="Tracking: 123456",
+            labels=["INBOX"],
+            internal_date=base_ts - day_ms,
+            has_attachments=True,
+        ),
+        MailMessage(
+            id="work1",
+            from_="boss@company.com",
+            subject="Q4 Budget Review",
+            snippet="Please review attached",
+            labels=["INBOX", "UNREAD"],
+            internal_date=base_ts - 2 * day_ms,
+            has_attachments=True,
+        ),
+    ]
+    
+    for email in emails:
+        storage.save_message(email)
+    
+    # Add classification for one email
+    storage.create_classification(
+        message_id="work1",
+        labels=["work", "finance"],
+        priority="high",
+        summary="Budget review from boss",
+        model="rules"
+    )
+    
+    embedding = EmbeddingService()
+    from unittest.mock import patch
+    with patch.object(LLMProcessor, '_is_ollama_running', return_value=False):
+        llm = LLMProcessor()
+    return RAGQueryEngine(storage, embedding, llm)
+
+
+class TestHandlerRouting:
+    """Integration tests for query routing to handlers."""
+
+    def test_conversation_handler_routing(self, memory_rag_engine):
+        """Should route conversation queries to ConversationHandler."""
+        result = memory_rag_engine.query("hello")
+        
+        assert result['query_type'] == 'conversation'
+        assert 'answer' in result
+        assert result['sources'] == []
+
+    def test_aggregation_handler_routing(self, memory_rag_engine):
+        """Should route aggregation queries to AggregationHandler."""
+        result = memory_rag_engine.query("how many emails do I have")
+        
+        assert result['query_type'] == 'aggregation'
+        # With rules provider, the answer format may vary
+        # Just verify we got some answer about emails
+        assert 'answer' in result
+        assert result['confidence'] in ('high', 'medium', 'low', 'none')
+
+    def test_temporal_handler_routing(self, memory_rag_engine):
+        """Should route temporal queries to TemporalHandler."""
+        result = memory_rag_engine.query("show me my latest emails")
+        
+        assert result['query_type'] in ('temporal', 'filtered-temporal', 'semantic')
+        assert 'sources' in result
+        # With rules provider, answer may be a fallback response
+        assert 'answer' in result
+
+    def test_classification_handler_routing(self, memory_rag_engine):
+        """Should route classification queries to ClassificationHandler."""
+        result = memory_rag_engine.query("show me finance emails")
+        
+        assert result['query_type'] == 'classification'
+        # With rules provider, answer may be a fallback response
+        assert 'answer' in result
+
+    def test_full_query_flow(self, memory_rag_engine):
+        """Test complete query flow: classify -> route -> handler -> response."""
+        # Test multiple query types in sequence - use queries that are reliably classified
+        queries = [
+            ("hi", {"conversation"}),
+            ("how many emails", {"aggregation"}),
+            ("show me finance emails", {"classification"}),  # Use explicit finance label
+        ]
+        
+        for query, valid_types in queries:
+            result = memory_rag_engine.query(query)
+            
+            assert result['query_type'] in valid_types, \
+                f"Query '{query}' got type '{result['query_type']}' instead of one of {valid_types}"
+            assert 'answer' in result
+            assert 'sources' in result
+            assert 'confidence' in result
+
+    def test_handler_response_format(self, memory_rag_engine):
+        """All handlers should return consistent response format."""
+        # Use queries that don't need LLM invoke (conversation, aggregation)
+        queries = ["hello", "how many emails"]
+        
+        required_keys = {'answer', 'sources', 'question', 'confidence', 'query_type'}
+        
+        for query in queries:
+            result = memory_rag_engine.query(query)
+            
+            assert required_keys.issubset(result.keys()), \
+                f"Response for '{query}' missing keys: {required_keys - result.keys()}"
+
+
+class TestQueryClassifierIntegrationWithEngine:
+    """Test that QueryClassifier integrates correctly with RAGQueryEngine."""
+
+    def test_classifier_is_used(self, memory_rag_engine):
+        """RAGQueryEngine should use QueryClassifier for classification."""
+        # Verify the classifier attribute exists
+        assert hasattr(memory_rag_engine, 'classifier')
+        assert isinstance(memory_rag_engine.classifier, QueryClassifier)
+
+    def test_detect_query_type_delegates(self, memory_rag_engine):
+        """_detect_query_type should delegate to classifier."""
+        query = "hello"
+        
+        # Call through both paths
+        via_engine = memory_rag_engine._detect_query_type(query)
+        via_classifier = memory_rag_engine.classifier.detect_query_type(query)
+        
+        assert via_engine == via_classifier
+
+    def test_all_handlers_initialized(self, memory_rag_engine):
+        """All handler types should be initialized."""
+        expected_handlers = {
+            'conversation', 'aggregation', 'search-by-sender', 'search-by-attachment',
+            'classification', 'temporal', 'filtered-temporal', 'semantic'
+        }
+        
+        assert expected_handlers == set(memory_rag_engine.handlers.keys())

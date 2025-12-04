@@ -191,6 +191,10 @@ class LLMProcessor:
             # Fallback to direct Ollama API
             logger.debug(f"[LLM INVOKE] Using direct Ollama API")
             return self._call_ollama_direct(prompt)
+        elif self.provider == "rules":
+            # Rules provider fallback - return a simple response for testing
+            logger.debug(f"[LLM INVOKE] Rules provider - returning fallback response")
+            return "Based on the emails provided, I can help answer your question."
         else:
             raise RuntimeError(f"No LLM available for provider '{self.provider}'")
 

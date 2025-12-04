@@ -3,7 +3,7 @@
 This module provides the main entry point for RAG queries, routing them to
 specialized handlers based on query type.
 """
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 import logging
 
 from .embedding_service import EmbeddingService
@@ -144,21 +144,6 @@ class RAGQueryEngine:
             return handler.handle_filtered(question, limit=k)
         else:
             return handler.handle(question, limit=k)
-
-    def find_similar_emails(self, message_id: str, limit: int = 5) -> List[Dict]:
-        """Find emails similar to a given email.
-
-        Args:
-            message_id: ID of the email to find similar emails for
-            limit: Number of similar emails to return
-
-        Returns:
-            List of similar email metadata with similarity scores
-        """
-        semantic_handler = self.handlers.get('semantic')
-        if semantic_handler and hasattr(semantic_handler, 'find_similar_emails'):
-            return semantic_handler.find_similar_emails(message_id, limit)
-        return []
 
     # Legacy method for backwards compatibility
     def _detect_query_type(self, question: str) -> str:

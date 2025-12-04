@@ -994,34 +994,6 @@ async def query_emails(request: QueryRequest) -> dict:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 
 
-@app.get("/api/similar/{message_id}")
-async def find_similar(message_id: str, limit: int = 5) -> dict:
-    """Find emails similar to a given email.
-
-    Uses vector similarity to find semantically similar emails.
-    Useful for finding related conversations or duplicate emails.
-    """
-    import logging
-    logger = logging.getLogger("uvicorn")
-
-    logger.info(f"[SIMILAR] Finding similar emails to {message_id}, limit={limit}")
-
-    try:
-        rag_engine = get_rag_engine()
-        similar = rag_engine.find_similar_emails(message_id, limit=limit)
-
-        logger.info(f"[SIMILAR] Found {len(similar)} similar emails")
-
-        return {
-            "message_id": message_id,
-            "similar_emails": similar
-        }
-
-    except Exception as e:
-        logger.error(f"[SIMILAR] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Similarity search failed: {str(e)}")
-
-
 @app.get("/api/embedding_status")
 async def embedding_status() -> dict:
     """Get statistics about embedding coverage.
