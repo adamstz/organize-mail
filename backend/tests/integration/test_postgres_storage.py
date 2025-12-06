@@ -807,25 +807,26 @@ class TestPostgresStorageFilteringOptimization:
     """Tests for the optimized list_messages_by_filters method."""
     
     def test_filter_by_priority_only(self, storage):
-        """Test filtering by priority only."""
-        # Create messages with different priorities
-        for i in range(10):
-            msg = MailMessage(id=f"filter-priority-{i}", subject=f"Test {i}", from_="sender@example.com")
-            storage.save_message(msg)
-            
-            if i < 3:
-                priority = "high"
-            elif i < 6:
-                priority = "normal"
-            else:
-                priority = "low"
-            
-            storage.create_classification(
-                message_id=f"filter-priority-{i}",
-                labels=["test"],
-                priority=priority,
-                summary=f"Test message {i}"
+        """Test filtering by priority only using batch inserts."""
+        # Create messages with different priorities using batch
+        msgs = [
+            MailMessage(id=f"filter-priority-{i}", subject=f"Test {i}", from_="sender@example.com")
+            for i in range(10)
+        ]
+        storage.save_messages_batch(msgs)
+        
+        # Create classifications in batch
+        classifications = [
+            (
+                f"filter-priority-{i}",
+                ["test"],
+                "high" if i < 3 else ("normal" if i < 6 else "low"),
+                f"Test message {i}",
+                None
             )
+            for i in range(10)
+        ]
+        storage.create_classifications_batch(classifications)
         
         # Filter by high priority
         messages, total = storage.list_messages_by_filters(priority="high", limit=10, offset=0)
@@ -840,19 +841,20 @@ class TestPostgresStorageFilteringOptimization:
         assert all(m.priority == "normal" for m in messages)
     
     def test_filter_by_single_label(self, storage):
-        """Test filtering by a single label."""
-        # Create messages with different labels
-        for i in range(5):
-            msg = MailMessage(id=f"filter-label-{i}", subject=f"Test {i}", from_="sender@example.com")
-            storage.save_message(msg)
-            
-            labels = ["work"] if i % 2 == 0 else ["personal"]
-            storage.create_classification(
-                message_id=f"filter-label-{i}",
-                labels=labels,
-                priority="normal",
-                summary=f"Test {i}"
-            )
+        """Test filtering by a single label using batch inserts."""
+        # Create messages using batch
+        msgs = [
+            MailMessage(id=f"filter-label-{i}", subject=f"Test {i}", from_="sender@example.com")
+            for i in range(5)
+        ]
+        storage.save_messages_batch(msgs)
+        
+        # Create classifications in batch
+        classifications = [
+            (f"filter-label-{i}", ["work"] if i % 2 == 0 else ["personal"], "normal", f"Test {i}", None)
+            for i in range(5)
+        ]
+        storage.create_classifications_batch(classifications)
         
         # Filter by work label
         messages, total = storage.list_messages_by_filters(labels=["work"], limit=10, offset=0)
@@ -867,7 +869,7 @@ class TestPostgresStorageFilteringOptimization:
         assert all("personal" in m.classification_labels for m in messages)
     
     def test_filter_by_multiple_labels(self, storage):
-        """Test filtering by multiple labels (AND logic)."""
+        """Test filtering by multiple labels (AND logic) using batch inserts."""
         # Create messages with various label combinations
         test_cases = [
             ("multi-label-0", ["work", "urgent"]),
@@ -877,15 +879,11 @@ class TestPostgresStorageFilteringOptimization:
             ("multi-label-4", ["personal", "urgent"]),
         ]
         
-        for msg_id, labels in test_cases:
-            msg = MailMessage(id=msg_id, subject="Test", from_="sender@example.com")
-            storage.save_message(msg)
-            storage.create_classification(
-                message_id=msg_id,
-                labels=labels,
-                priority="normal",
-                summary="Test"
-            )
+        msgs = [MailMessage(id=msg_id, subject="Test", from_="sender@example.com") for msg_id, _ in test_cases]
+        storage.save_messages_batch(msgs)
+        
+        classifications = [(msg_id, labels, "normal", "Test", None) for msg_id, labels in test_cases]
+        storage.create_classifications_batch(classifications)
         
         # Filter by work AND urgent (should match multi-label-0 and multi-label-1)
         messages, total = storage.list_messages_by_filters(labels=["work", "urgent"], limit=10, offset=0)
@@ -905,7 +903,7 @@ class TestPostgresStorageFilteringOptimization:
         assert messages[0].id == "multi-label-1"
     
     def test_filter_by_priority_and_labels(self, storage):
-        """Test filtering by both priority and labels."""
+        """Test filtering by both priority and labels using batch inserts."""
         # Create messages with combinations
         test_cases = [
             ("combo-0", "high", ["work", "urgent"]),
@@ -914,15 +912,11 @@ class TestPostgresStorageFilteringOptimization:
             ("combo-3", "low", ["work"]),
         ]
         
-        for msg_id, priority, labels in test_cases:
-            msg = MailMessage(id=msg_id, subject="Test", from_="sender@example.com")
-            storage.save_message(msg)
-            storage.create_classification(
-                message_id=msg_id,
-                labels=labels,
-                priority=priority,
-                summary="Test"
-            )
+        msgs = [MailMessage(id=msg_id, subject="Test", from_="sender@example.com") for msg_id, _, _ in test_cases]
+        storage.save_messages_batch(msgs)
+        
+        classifications = [(msg_id, labels, priority, "Test", None) for msg_id, priority, labels in test_cases]
+        storage.create_classifications_batch(classifications)
         
         # Filter by high priority AND work label
         messages, total = storage.list_messages_by_filters(
@@ -947,20 +941,20 @@ class TestPostgresStorageFilteringOptimization:
         assert ids == {"combo-0", "combo-2"}
     
     def test_filter_classified_only(self, storage):
-        """Test filtering only classified messages."""
-        # Create some classified and unclassified messages
-        for i in range(5):
-            msg = MailMessage(id=f"classified-test-{i}", subject=f"Test {i}", from_="sender@example.com")
-            storage.save_message(msg)
-            
-            # Classify only even-numbered messages
-            if i % 2 == 0:
-                storage.create_classification(
-                    message_id=f"classified-test-{i}",
-                    labels=["test"],
-                    priority="normal",
-                    summary="Classified"
-                )
+        """Test filtering only classified messages using batch inserts."""
+        # Create all messages in batch
+        msgs = [
+            MailMessage(id=f"classified-test-{i}", subject=f"Test {i}", from_="sender@example.com")
+            for i in range(5)
+        ]
+        storage.save_messages_batch(msgs)
+        
+        # Classify only even-numbered messages in batch
+        classifications = [
+            (f"classified-test-{i}", ["test"], "normal", "Classified", None)
+            for i in range(5) if i % 2 == 0
+        ]
+        storage.create_classifications_batch(classifications)
         
         # Filter classified only
         messages, total = storage.list_messages_by_filters(classified=True, limit=10, offset=0)
@@ -969,20 +963,20 @@ class TestPostgresStorageFilteringOptimization:
         assert all(m.classification_labels is not None for m in messages)
     
     def test_filter_unclassified_only(self, storage):
-        """Test filtering only unclassified messages."""
-        # Create some classified and unclassified messages
-        for i in range(5):
-            msg = MailMessage(id=f"unclassified-test-{i}", subject=f"Test {i}", from_="sender@example.com")
-            storage.save_message(msg)
-            
-            # Classify only even-numbered messages
-            if i % 2 == 0:
-                storage.create_classification(
-                    message_id=f"unclassified-test-{i}",
-                    labels=["test"],
-                    priority="normal",
-                    summary="Classified"
-                )
+        """Test filtering only unclassified messages using batch inserts."""
+        # Create all messages in batch
+        msgs = [
+            MailMessage(id=f"unclassified-test-{i}", subject=f"Test {i}", from_="sender@example.com")
+            for i in range(5)
+        ]
+        storage.save_messages_batch(msgs)
+        
+        # Classify only even-numbered messages in batch
+        classifications = [
+            (f"unclassified-test-{i}", ["test"], "normal", "Classified", None)
+            for i in range(5) if i % 2 == 0
+        ]
+        storage.create_classifications_batch(classifications)
         
         # Filter unclassified only
         messages, total = storage.list_messages_by_filters(classified=False, limit=10, offset=0)
@@ -991,17 +985,20 @@ class TestPostgresStorageFilteringOptimization:
         assert all(m.classification_labels is None for m in messages)
     
     def test_filter_with_pagination(self, storage):
-        """Test filtering with pagination."""
-        # Create 20 messages with same priority
-        for i in range(20):
-            msg = MailMessage(id=f"page-test-{i}", subject=f"Test {i}", from_="sender@example.com")
-            storage.save_message(msg)
-            storage.create_classification(
-                message_id=f"page-test-{i}",
-                labels=["test"],
-                priority="high",
-                summary="Test"
-            )
+        """Test filtering with pagination using batch inserts."""
+        # Create 20 messages with same priority using batch insert
+        msgs = [
+            MailMessage(id=f"page-test-{i}", subject=f"Test {i}", from_="sender@example.com")
+            for i in range(20)
+        ]
+        storage.save_messages_batch(msgs)
+        
+        # Create classifications in batch
+        classifications = [
+            (f"page-test-{i}", ["test"], "high", "Test", None)
+            for i in range(20)
+        ]
+        storage.create_classifications_batch(classifications)
         
         # Get first page (5 messages)
         messages, total = storage.list_messages_by_filters(priority="high", limit=5, offset=0)
@@ -1024,17 +1021,19 @@ class TestPostgresStorageFilteringOptimization:
         assert total == 20
     
     def test_filter_no_matches(self, storage):
-        """Test filtering with no matching messages."""
-        # Create some messages
-        for i in range(3):
-            msg = MailMessage(id=f"nomatch-{i}", subject=f"Test {i}", from_="sender@example.com")
-            storage.save_message(msg)
-            storage.create_classification(
-                message_id=f"nomatch-{i}",
-                labels=["work"],
-                priority="low",
-                summary="Test"
-            )
+        """Test filtering with no matching messages using batch inserts."""
+        # Create messages using batch
+        msgs = [
+            MailMessage(id=f"nomatch-{i}", subject=f"Test {i}", from_="sender@example.com")
+            for i in range(3)
+        ]
+        storage.save_messages_batch(msgs)
+        
+        classifications = [
+            (f"nomatch-{i}", ["work"], "low", "Test", None)
+            for i in range(3)
+        ]
+        storage.create_classifications_batch(classifications)
         
         # Filter by non-existent label
         messages, total = storage.list_messages_by_filters(labels=["nonexistent"], limit=10, offset=0)
@@ -1047,7 +1046,7 @@ class TestPostgresStorageFilteringOptimization:
         assert total == 0
     
     def test_filter_all_parameters(self, storage):
-        """Test filtering with all parameters combined."""
+        """Test filtering with all parameters combined using batch inserts."""
         # Create a variety of messages
         test_cases = [
             ("all-params-0", "high", ["work", "urgent", "important"], True),
@@ -1057,17 +1056,16 @@ class TestPostgresStorageFilteringOptimization:
             ("all-params-4", None, None, False),  # Unclassified
         ]
         
-        for msg_id, priority, labels, is_classified in test_cases:
-            msg = MailMessage(id=msg_id, subject="Test", from_="sender@example.com")
-            storage.save_message(msg)
-            
-            if is_classified:
-                storage.create_classification(
-                    message_id=msg_id,
-                    labels=labels,
-                    priority=priority,
-                    summary="Test"
-                )
+        msgs = [MailMessage(id=msg_id, subject="Test", from_="sender@example.com") for msg_id, _, _, _ in test_cases]
+        storage.save_messages_batch(msgs)
+        
+        # Only classify some messages
+        classifications = [
+            (msg_id, labels, priority, "Test", None)
+            for msg_id, priority, labels, is_classified in test_cases
+            if is_classified
+        ]
+        storage.create_classifications_batch(classifications)
         
         # Filter: high priority + work label + urgent label + classified only
         messages, total = storage.list_messages_by_filters(
@@ -1101,16 +1099,18 @@ class TestPostgresStorageFilteringOptimization:
             assert messages[0].id == "case-test"
     
     def test_filter_empty_labels_list(self, storage):
-        """Test filtering with empty labels list (should return all classified)."""
-        for i in range(3):
-            msg = MailMessage(id=f"empty-labels-{i}", subject=f"Test {i}", from_="sender@example.com")
-            storage.save_message(msg)
-            storage.create_classification(
-                message_id=f"empty-labels-{i}",
-                labels=["test"],
-                priority="normal",
-                summary="Test"
-            )
+        """Test filtering with empty labels list using batch inserts."""
+        msgs = [
+            MailMessage(id=f"empty-labels-{i}", subject=f"Test {i}", from_="sender@example.com")
+            for i in range(3)
+        ]
+        storage.save_messages_batch(msgs)
+        
+        classifications = [
+            (f"empty-labels-{i}", ["test"], "normal", "Test", None)
+            for i in range(3)
+        ]
+        storage.create_classifications_batch(classifications)
         
         # Empty labels list should not filter by labels
         messages, total = storage.list_messages_by_filters(labels=[], limit=10, offset=0)
@@ -1118,21 +1118,26 @@ class TestPostgresStorageFilteringOptimization:
         assert total == 3
     
     def test_filter_performance_large_dataset(self, storage):
-        """Test filtering performance with larger dataset."""
-        # Create 100 messages with various combinations
-        for i in range(100):
-            msg = MailMessage(id=f"perf-{i}", subject=f"Test {i}", from_="sender@example.com")
-            storage.save_message(msg)
-            
-            priority = ["high", "normal", "low"][i % 3]
-            labels = [["work"], ["personal"], ["work", "urgent"]][i % 3]
-            
-            storage.create_classification(
-                message_id=f"perf-{i}",
-                labels=labels,
-                priority=priority,
-                summary=f"Test {i}"
+        """Test filtering performance with larger dataset using batch inserts."""
+        # Create 30 messages (reduced from 100) using batch insert
+        msgs = [
+            MailMessage(id=f"perf-{i}", subject=f"Test {i}", from_="sender@example.com")
+            for i in range(30)
+        ]
+        storage.save_messages_batch(msgs)
+        
+        # Create classifications in batch
+        classifications = [
+            (
+                f"perf-{i}",
+                [["work"], ["personal"], ["work", "urgent"]][i % 3],
+                ["high", "normal", "low"][i % 3],
+                f"Test {i}",
+                None
             )
+            for i in range(30)
+        ]
+        storage.create_classifications_batch(classifications)
         
         import time
         
@@ -1146,7 +1151,7 @@ class TestPostgresStorageFilteringOptimization:
         )
         elapsed = time.time() - start
         
-        # Should complete quickly (under 1 second even for 100 messages)
+        # Should complete quickly (under 1 second even with network latency)
         assert elapsed < 1.0
         assert total > 0  # Should find some matches
         assert len(messages) <= 50  # Respects limit

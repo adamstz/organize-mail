@@ -19,9 +19,6 @@ FastAPI backend for ingesting, storing, classifying, and searching email. Suppor
 backend/
 ├── src/
 │   ├── api.py                    # Main FastAPI app with REST + WebSocket endpoints
-│   ├── llm_processor.py          # Multi-provider LLM orchestration
-│   ├── embedding_service.py      # Email embedding generation
-│   ├── rag_engine.py             # Semantic search and RAG queries
 │   ├── clients/
 │   │   └── gmail_client.py       # Gmail API integration
 │   ├── jobs/
@@ -31,6 +28,12 @@ backend/
 │   ├── models/
 │   │   ├── message.py            # Email message model
 │   │   └── classification_record.py  # Classification audit trail
+│   ├── services/
+│   │   ├── llm_processor.py      # Multi-provider LLM orchestration
+│   │   ├── embedding_service.py  # Email embedding generation
+│   │   ├── rag_engine.py         # Semantic search and RAG queries
+│   │   ├── context_builder.py    # Context building for RAG
+│   │   └── prompt_templates.py   # Centralized prompt templates
 │   └── storage/
 │       ├── storage_interface.py  # Abstract storage layer
 │       ├── sqlite_storage.py     # SQLite implementation
@@ -82,23 +85,30 @@ backend/
 ## API Endpoints
 
 ### Email Management
-- `GET /api/messages` - List emails with filtering and pagination
-- `GET /api/messages/{message_id}` - Get single email details
-- `POST /api/messages/reclassify/{message_id}` - Trigger reclassification
+- `GET /messages` - List emails with filtering and pagination
+- `GET /messages/{message_id}` - Get single email details
+- `GET /messages/{message_id}/body` - Get full email body
+- `POST /messages/{message_id}/reclassify` - Trigger reclassification
+- `GET /messages/filter/priority/{priority}` - Filter by priority
+- `GET /messages/filter/label/{label}` - Filter by label
+- `GET /messages/filter/classified` - Get classified messages
+- `GET /messages/filter/unclassified` - Get unclassified messages
+- `GET /messages/filter/advanced` - Advanced filtering
 
 ### Classification
-- `GET /api/stats` - Classification statistics by label and priority
-- `GET /api/labels` - Available classification labels
-- `POST /api/classify` - Manual classification endpoint
+- `GET /stats` - Classification statistics by label and priority
+- `GET /labels` - Available classification labels
 
 ### RAG (Retrieval-Augmented Generation)
-- `POST /api/rag/query` - Ask questions about email history
-- `GET /api/rag/embedding-status` - Check embedding generation progress
-- `POST /api/rag/find-similar` - Find similar emails to given message
+- `POST /api/query` - Ask questions about email history
 
 ### System
-- `GET /api/models` - List available LLM models
+- `GET /models` - List available LLM models
+- `GET /api/embedding_status` - Check embedding generation progress
 - `POST /api/ollama/start` - Start local Ollama service
+- `GET /api/sync-status` - Get sync status
+- `POST /api/sync/pull` - Pull new messages
+- `POST /api/sync/classify` - Classify unclassified messages
 - `GET /ws/logs` - WebSocket endpoint for real-time log streaming
 - `POST /api/frontend-log` - Receive logs from frontend
 
@@ -106,8 +116,6 @@ backend/
 
 Supported providers: Ollama (local), OpenAI, Anthropic. Provider selection is
 configured via environment variables or the settings module.
-
-See [LLM Examples](examples/README.md) for detailed configuration and usage examples.
 
 ## Gmail Integration
 

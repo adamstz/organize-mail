@@ -67,8 +67,8 @@ QUERY_CLASSIFICATION_PROMPT = """Classify this email query in ONE word:
 
 Query types:
 - conversation: greetings, thanks, help requests (hi, hello, thank you, what can you do)
-- aggregation: statistics, counting, top senders (how many total, who emails most, count of)
-- search-by-sender: find all from specific sender without time constraint (all from X, emails from Y)
+- aggregation: statistics, counting, top senders (how many total, who emails most, count of, how many [topic])
+- search-by-sender: find all from specific sender without time constraint (all from X, emails from Y, show me X's emails)
 - search-by-attachment: find emails with attachments (with attachments, has files)
 - classification: label-based queries (job rejections, spam emails, receipts)
 - filtered-temporal: time + topic/sender (recent uber emails, latest from amazon, last week's newsletters)
@@ -76,9 +76,10 @@ Query types:
 - semantic: content search without time constraint (about project alpha, regarding meeting)
 
 Rules:
+- If asks "how many" with a specific topic/sender (e.g., "how many uber emails") → aggregation
 - If has BOTH time word (recent/latest/last) AND topic/sender → filtered-temporal
 - If asks "how many total" or "who emails most" → aggregation
-- If "all from X" without time → search-by-sender
+- If "all from [sender]" or "show me [sender] emails" without counting → search-by-sender
 - If greeting/thanks → conversation
 - If time word but no topic → temporal
 - Otherwise → semantic
@@ -276,7 +277,7 @@ KEYWORD_EXTRACTION_PROMPT = """Extract search keywords from this query in ONE li
 
 Extract ONLY the important content words (people, companies, topics, products).
 Remove time words (recent, latest, last, newest).
-Return 2-4 keywords separated by spaces.
+Return 1-3 keywords separated by commas.
 
 Keywords:"""
 
@@ -285,11 +286,46 @@ Keywords:"""
 # SENDER EXTRACTION PROMPTS
 # =============================================================================
 
-SENDER_EXTRACTION_PROMPT = """Extract the sender name/email from this query:
+SENDER_EXTRACTION_PROMPT = """Extract the sender name or email address from this query.
+Return ONLY the sender name/email, nothing else.
 
-"{question}"
+Query: "{question}"
 
-Return ONLY the sender name or email address, nothing else.
-If no sender mentioned, return "unknown".
+Examples:
+- "emails from uber" → uber
+- "all from amazon" → amazon
+- "linkedin messages" → linkedin
+- "john@company.com emails" → john@company.com
+- "show me uber eats emails" → uber eats
+- "all my google mail" → google
+
+Important:
+- Return the sender name EXACTLY as mentioned
+- If it's a company with multiple words (like "uber eats"), return both words
+- Do NOT return other words from the query like "the", "my", "show", etc.
+- Return ONLY the sender name
 
 Sender:"""
+
+
+# =============================================================================
+# TOPIC EXTRACTION PROMPTS
+# =============================================================================
+
+TOPIC_EXTRACTION_PROMPT = """You are extracting a company or sender name from a user's question.
+Extract ONLY the company/sender name.
+
+User's question: "{question}"
+
+Instructions:
+- Look at the question and identify the company, service, or sender name mentioned
+- Return ONLY that name, nothing else
+- Do not say "not provided" or similar - extract what IS in the question
+
+Examples:
+Question: "how many uber eats emails do I have" → Answer: uber eats
+Question: "how many amazon mails" → Answer: amazon
+Question: "count my linkedin messages" → Answer: linkedin
+Question: "how many github emails" → Answer: github
+
+Now extract from the user's question above. Return ONLY the company/sender name:"""
