@@ -22,6 +22,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on startup."""
+    storage.init_db()
+    logging.info("Database initialized")
+
+
 # Log buffer for real-time viewing
 log_buffer = deque(maxlen=500)
 log_subscribers: List[WebSocket] = []
@@ -56,16 +64,25 @@ class LogBufferHandler(logging.Handler):
             pass
 
 
-# Set up logging handler
+# Set up logging handlers
 log_handler = LogBufferHandler()
 log_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 log_handler.setFormatter(formatter)
 
-# Add handler to root logger and uvicorn logger
+# Add console handler for terminal output
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(formatter)
+
+# Add handlers to root logger and uvicorn logger
 logging.getLogger().addHandler(log_handler)
+logging.getLogger().addHandler(console_handler)
 logging.getLogger("uvicorn").addHandler(log_handler)
 logging.getLogger("uvicorn.access").addHandler(log_handler)
+
+# Set root logger level
+logging.getLogger().setLevel(logging.INFO)
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
@@ -723,6 +740,43 @@ async def list_models() -> dict:
         return {"models": [], "error": str(e)}
 
 
+class SetModelRequest(BaseModel):
+    """Request model for setting the active LLM model."""
+    model: str
+
+
+@app.post("/api/set-model")
+async def set_model(request: SetModelRequest) -> dict:
+    """Set the active LLM model for all subsequent operations."""
+    import os
+
+    try:
+        os.environ["LLM_MODEL"] = request.model
+        logger.info(f"[MODEL SELECTION] Changed model to: {request.model}")
+        return {
+            "success": True,
+            "model": request.model,
+            "message": f"Model changed to {request.model}"
+        }
+    except Exception as e:
+        logger.error(f"[MODEL SELECTION] Error setting model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/current-model")
+async def get_current_model() -> dict:
+    """Get the currently active LLM model."""
+    import os
+
+    current_model = os.getenv("LLM_MODEL", "gemma:2b")
+    provider = os.getenv("LLM_PROVIDER", "ollama")
+
+    return {
+        "model": current_model,
+        "provider": provider
+    }
+
+
 @app.post("/api/ollama/start")
 async def start_ollama() -> dict:
     """Start the Ollama service."""
@@ -876,6 +930,33 @@ def get_rag_engine() -> RAGQueryEngine:
     return _rag_engine
 
 
+async def generate_session_title(chat_session_id: str, first_message: str):
+    """Background task to generate a title for a new chat session.
+
+    Args:
+        chat_session_id: The session ID to update
+        first_message: The first user message to base the title on
+    """
+    try:
+        logger.info(f"[TITLE GEN] Starting title generation for session {chat_session_id}")
+
+        # Get LLM processor
+        rag_engine = get_rag_engine()
+        llm = rag_engine.llm
+
+        # Generate title
+        title = await llm.generate_chat_title(first_message)
+
+        # Update session title
+        storage.update_chat_session_title(chat_session_id, title)
+
+        logger.info(f"[TITLE GEN] ✓ Updated session {chat_session_id} with title: '{title}'")
+
+    except Exception as e:
+        logger.error(f"[TITLE GEN] ✗ Failed to generate title for session {chat_session_id}: {e}", exc_info=True)
+        # Don't raise - this is a background task, failure shouldn't affect the main flow
+
+
 # ==================== SYNC ENDPOINTS ====================
 
 
@@ -930,8 +1011,20 @@ async def sync_classify() -> dict:
 class QueryRequest(BaseModel):
     """Request model for RAG queries."""
     question: str
+    chat_session_id: Optional[str] = None
     top_k: Optional[int] = 5
     similarity_threshold: Optional[float] = 0.5
+    model: Optional[str] = None
+
+
+class ChatSessionCreateRequest(BaseModel):
+    """Request model for creating a new chat session."""
+    title: Optional[str] = None
+
+
+class ChatSessionUpdateRequest(BaseModel):
+    """Request model for updating a chat session."""
+    title: str
 
 
 @app.post("/api/query")
@@ -946,6 +1039,7 @@ async def query_emails(request: QueryRequest) -> dict:
     Example request:
     {
         "question": "What invoices did I receive last month?",
+        "session_id": "optional-session-uuid",
         "top_k": 5,
         "similarity_threshold": 0.5
     }
@@ -957,24 +1051,77 @@ async def query_emails(request: QueryRequest) -> dict:
     print("=" * 80)
     print(f"[API QUERY] Received query request")
     print(f"[API QUERY] Question: '{request.question}'")
+    print(f"[API QUERY] Chat Session ID: {request.chat_session_id}")
     print(f"[API QUERY] Top K: {request.top_k}")
     print(f"[API QUERY] Similarity Threshold: {request.similarity_threshold}")
 
-    logger.info(f"[RAG QUERY] Question: {request.question}")
+    logger.info(f"[RAG QUERY] Question: {request.question}, Chat Session: {request.chat_session_id}")
 
     start_time = time.time()
 
     try:
+        # Track if this is the first message in the session (for title generation)
+        is_first_message = False
+
+        # Save user message to chat session if chat_session_id provided
+        if request.chat_session_id:
+            # Check if this is the first message
+            messages = storage.get_chat_session_messages(request.chat_session_id, limit=1)
+            is_first_message = len(messages) == 0
+
+            storage.save_message_to_chat_session(
+                chat_session_id=request.chat_session_id,
+                role='user',
+                content=request.question
+            )
+
         print(f"[API QUERY] Getting RAG engine...")
         rag_engine = get_rag_engine()
         print(f"[API QUERY] RAG engine obtained successfully")
+        print(f"[API QUERY] Model: {rag_engine.llm.provider}/{rag_engine.llm.model}")
+
+        # Fetch chat history for context if chat_session_id is provided
+        chat_history = []
+        if request.chat_session_id:
+            try:
+                session_messages = storage.get_chat_session_messages(request.chat_session_id, limit=20)
+                # Convert to the format expected by RAG engine: [{"role": "user/assistant", "content": "..."}]
+                chat_history = [
+                    {
+                        "role": msg["role"],
+                        "content": msg["content"]
+                    }
+                    for msg in session_messages
+                    # Exclude the current message we're about to process
+                    if not (msg["role"] == "user" and msg["content"] == request.question)
+                ]
+                print(f"[API QUERY] Loaded {len(chat_history)} previous messages for context")
+            except Exception as e:
+                logger.warning(f"[API QUERY] Failed to load chat history: {e}")
+                chat_history = []
 
         print(f"[API QUERY] Calling RAG engine query...")
         result = rag_engine.query(
             question=request.question,
             top_k=request.top_k,
-            similarity_threshold=request.similarity_threshold
+            similarity_threshold=request.similarity_threshold,
+            chat_history=chat_history
         )
+
+        # Save assistant response to chat session if chat_session_id provided
+        if request.chat_session_id:
+            storage.save_message_to_chat_session(
+                chat_session_id=request.chat_session_id,
+                role='assistant',
+                content=result.get('answer', ''),
+                sources=result.get('sources', []),
+                confidence=result.get('confidence'),
+                query_type=result.get('query_type')
+            )
+
+            # Generate title asynchronously if this is the first message
+            if is_first_message:
+                asyncio.create_task(generate_session_title(request.chat_session_id, request.question))
 
         elapsed_time = time.time() - start_time
         print(f"[API QUERY] ✓ Query completed in {elapsed_time:.2f}s")
@@ -984,6 +1131,10 @@ async def query_emails(request: QueryRequest) -> dict:
         print(f"[API QUERY] Query type: {result.get('query_type', 'unknown')}")
 
         logger.info(f"[RAG QUERY] Answer generated with {len(result['sources'])} sources, confidence: {result['confidence']}")
+
+        # Add chat_session_id to response
+        if request.chat_session_id:
+            result['chat_session_id'] = request.chat_session_id
 
         return result
 
@@ -1037,4 +1188,81 @@ async def embedding_status() -> dict:
         "total_chunks": chunks,
         "coverage_percent": round((embedded / total * 100) if total > 0 else 0, 1),
         "ready_for_search": embedded > 0
+    }
+
+
+# Chat session endpoints
+@app.post("/api/chat-sessions")
+async def create_chat_session(request: ChatSessionCreateRequest) -> dict:
+    """Create a new chat session."""
+    logger.info(f"Creating new chat session with title: {request.title}")
+
+    from datetime import datetime, timezone
+    chat_session_id = storage.create_chat_session(title=request.title)
+
+    # Return full session object to match list endpoint format
+    return {
+        "id": chat_session_id,
+        "title": request.title or "New Chat",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "message_count": 0
+    }
+
+
+@app.get("/api/chat-sessions")
+async def list_chat_sessions(limit: int = 50, offset: int = 0) -> dict:
+    """List all chat sessions ordered by most recent."""
+    logger.info(f"Listing chat sessions: limit={limit}, offset={offset}")
+
+    sessions = storage.list_chat_sessions(limit=limit, offset=offset)
+
+    return {
+        "chat_sessions": sessions,
+        "total": len(sessions),
+        "limit": limit,
+        "offset": offset
+    }
+
+
+@app.get("/api/chat-sessions/{chat_session_id}/messages")
+async def get_chat_session_messages(chat_session_id: str, limit: int = 100, offset: int = 0) -> dict:
+    """Get all messages for a specific chat session."""
+    logger.info(f"Getting messages for chat session {chat_session_id}: limit={limit}, offset={offset}")
+
+    messages = storage.get_chat_session_messages(chat_session_id=chat_session_id, limit=limit, offset=offset)
+
+    return {
+        "chat_session_id": chat_session_id,
+        "messages": messages,
+        "total": len(messages),
+        "limit": limit,
+        "offset": offset
+    }
+
+
+@app.delete("/api/chat-sessions/{chat_session_id}")
+async def delete_chat_session(chat_session_id: str) -> dict:
+    """Delete a chat session and all its messages."""
+    logger.info(f"Deleting chat session {chat_session_id}")
+
+    storage.delete_chat_session(chat_session_id=chat_session_id)
+
+    return {
+        "chat_session_id": chat_session_id,
+        "message": "Chat session deleted successfully"
+    }
+
+
+@app.patch("/api/chat-sessions/{chat_session_id}")
+async def update_chat_session(chat_session_id: str, request: ChatSessionUpdateRequest) -> dict:
+    """Update a chat session's title."""
+    logger.info(f"Updating chat session {chat_session_id} title to: {request.title}")
+
+    storage.update_chat_session_title(chat_session_id=chat_session_id, title=request.title)
+
+    return {
+        "chat_session_id": chat_session_id,
+        "title": request.title,
+        "message": "Chat session updated successfully"
     }

@@ -1,5 +1,5 @@
 """Handler for conversational queries (greetings, help, etc)."""
-from typing import Dict
+from typing import Dict, Optional
 import logging
 
 from langchain_core.messages import HumanMessage
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class ConversationHandler(QueryHandler):
     """Handle conversational queries like greetings and help requests."""
 
-    def handle(self, question: str, limit: int = 5) -> Dict:
+    def handle(self, question: str, limit: int = 5, chat_history: Optional[list] = None) -> Dict:
         """Handle a conversational query.
 
         Args:
@@ -23,7 +23,7 @@ class ConversationHandler(QueryHandler):
         Returns:
             Query result with conversational response
         """
-        logger.info("[CONVERSATION] Handling conversational query")
+        logger.info(f"[CONVERSATION] Handling conversational query (model: {self.llm.provider}/{self.llm.model})")
 
         if self.llm.llm:
             # Use LangChain with centralized prompt

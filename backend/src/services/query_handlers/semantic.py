@@ -1,5 +1,5 @@
 """Handler for semantic (content-based) queries using vector search."""
-from typing import Dict
+from typing import Dict, Optional
 import logging
 
 from .base import QueryHandler
@@ -11,18 +11,19 @@ logger = logging.getLogger(__name__)
 class SemanticHandler(QueryHandler):
     """Handle content-based queries using semantic/vector search."""
 
-    def handle(self, question: str, limit: int = 5, threshold: float = 0.5) -> Dict:
+    def handle(self, question: str, limit: int = 5, threshold: float = 0.5, chat_history: Optional[list] = None) -> Dict:
         """Handle a semantic search query.
 
         Args:
             question: User's question
             limit: Maximum number of emails to retrieve
             threshold: Minimum similarity threshold
+            chat_history: Optional list of previous messages for context
 
         Returns:
             Query result with answer and sources
         """
-        logger.info("[SEMANTIC QUERY] Processing semantic query")
+        logger.info(f"[SEMANTIC QUERY] Processing semantic query (model: {self.llm.provider}/{self.llm.model})")
 
         if not self.embedder:
             return self._build_response(
@@ -114,7 +115,7 @@ class SemanticHandler(QueryHandler):
         # Step 4: Generate answer using LLM
         logger.debug("[SEMANTIC QUERY] Generating answer with LLM")
         try:
-            answer = self._generate_answer(question, context)
+            answer = self._generate_answer(question, context, chat_history)
         except Exception as e:
             logger.debug("[SEMANTIC QUERY] Answer generation failed: %s", e)
             return self._build_response(
@@ -157,10 +158,15 @@ class SemanticHandler(QueryHandler):
             confidence=confidence,
         )
 
-    def _generate_answer(self, question: str, context: str) -> str:
+    def _generate_answer(self, question: str, context: str, chat_history: Optional[list] = None) -> str:
         """Generate answer using LLM with email context."""
-        prompt = SEMANTIC_SEARCH_PROMPT.format(
+        # Format chat history for context
+        history_context = self._format_chat_history(chat_history) if chat_history else ""
+        
+        # Create enhanced prompt with chat history
+        enhanced_prompt = SEMANTIC_SEARCH_PROMPT.format(
             context=context,
             question=question,
-        )
-        return self._call_llm(prompt)
+        ) + history_context
+        
+        return self._call_llm(enhanced_prompt)

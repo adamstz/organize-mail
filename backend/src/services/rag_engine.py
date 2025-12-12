@@ -96,7 +96,8 @@ class RAGQueryEngine:
         self,
         question: str,
         top_k: Optional[int] = None,
-        similarity_threshold: float = 0.5
+        similarity_threshold: float = 0.5,
+        chat_history: Optional[list] = None
     ) -> Dict:
         """Answer a question based on email content.
 
@@ -104,6 +105,7 @@ class RAGQueryEngine:
             question: User's question
             top_k: Number of emails to retrieve (uses default if None)
             similarity_threshold: Minimum similarity score (0.0-1.0)
+            chat_history: Optional list of previous messages [{"role": "user/assistant", "content": "..."}]
 
         Returns:
             Dict with:
@@ -114,12 +116,15 @@ class RAGQueryEngine:
                 - query_type: The detected query type
         """
         k = top_k or self.top_k
+        chat_history = chat_history or []
 
         logger.info(f"[RAG QUERY] Processing question with {self.llm.provider}/{self.llm.model}")
         logger.info(f"[RAG QUERY] Question: '{question}', top_k: {k}, threshold: {similarity_threshold}")
+        if chat_history:
+            logger.info(f"[RAG QUERY] Using {len(chat_history)} previous messages for context")
 
         # Detect query type
-        query_type = self.classifier.detect_query_type(question)
+        query_type = self.classifier.detect_query_type(question, chat_history)
         logger.info(f"[RAG QUERY] Detected query type: {query_type}")
 
         # Get the appropriate handler
@@ -139,11 +144,11 @@ class RAGQueryEngine:
 
         # Handle special cases for handlers with extra parameters
         if query_type == 'semantic':
-            return handler.handle(question, limit=k, threshold=similarity_threshold)
+            return handler.handle(question, limit=k, threshold=similarity_threshold, chat_history=chat_history)
         elif query_type == 'filtered-temporal':
-            return handler.handle_filtered(question, limit=k)
+            return handler.handle_filtered(question, limit=k, chat_history=chat_history)
         else:
-            return handler.handle(question, limit=k)
+            return handler.handle(question, limit=k, chat_history=chat_history)
 
     # Legacy method for backwards compatibility
     def _detect_query_type(self, question: str) -> str:

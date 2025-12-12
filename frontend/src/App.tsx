@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { ThemeProvider, CssBaseline, Container, AppBar, Toolbar, Typography, Box, IconButton, Tooltip } from '@mui/material';
 import { createTheme } from '@mui/material/styles';
 import ChatIcon from '@mui/icons-material/Chat';
@@ -32,12 +32,28 @@ const App: React.FC = () => {
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<'recent' | 'oldest'>('recent');
-  const [selectedModel, setSelectedModel] = useState<string>('gemma:2b');
+  const [selectedModel, setSelectedModel] = useState<string>('qwen2.5:7b');
   const [isChatVisible, setIsChatVisible] = useState(true);
   const [isLogsVisible, setIsLogsVisible] = useState(false);
   const [chatWidth, setChatWidth] = useState(41.67); // Default ~5/12 columns in percentage
   const [isDragging, setIsDragging] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Fetch current model on mount
+  useEffect(() => {
+    const fetchCurrentModel = async () => {
+      try {
+        const response = await fetch('/api/current-model');
+        if (response.ok) {
+          const data = await response.json();
+          setSelectedModel(data.model);
+        }
+      } catch (error) {
+        console.error('Failed to fetch current model:', error);
+      }
+    };
+    fetchCurrentModel();
+  }, []);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();

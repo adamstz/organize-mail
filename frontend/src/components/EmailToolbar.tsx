@@ -83,9 +83,28 @@ const EmailToolbar: React.FC<EmailToolbarProps> = ({
     onSearchChange(query);
   };
 
-  const handleModelChange = (model: string) => {
+  const handleModelChange = async (model: string) => {
     logger.info(`User selected model: ${model}`);
-    onModelChange(model);
+    
+    try {
+      const response = await fetch('/api/set-model', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to set model');
+      }
+      
+      const result = await response.json();
+      logger.info(`Model changed successfully: ${result.message}`);
+      onModelChange(model);
+    } catch (error) {
+      logger.error('Failed to set model', error);
+      // Still update UI even if API call fails
+      onModelChange(model);
+    }
   };
 
 

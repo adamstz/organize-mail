@@ -1,5 +1,5 @@
 """Handler for temporal queries (time-based and filtered-temporal)."""
-from typing import Dict, List
+from typing import Dict, List, Optional
 import logging
 
 from .base import QueryHandler
@@ -11,37 +11,39 @@ logger = logging.getLogger(__name__)
 class TemporalHandler(QueryHandler):
     """Handle time-based queries, both pure temporal and filtered-temporal."""
 
-    def handle(self, question: str, limit: int = 5, filtered: bool = False) -> Dict:
+    def handle(self, question: str, limit: int = 5, filtered: bool = False, chat_history: Optional[list] = None) -> Dict:
         """Handle a temporal query.
 
         Args:
             question: User's question
             limit: Maximum number of emails to retrieve
             filtered: If True, treat as filtered-temporal (time + content filter)
+            chat_history: Optional list of previous messages for context
 
         Returns:
             Query result with answer and sources
         """
         if filtered:
-            return self._handle_filtered(question, limit)
+            return self._handle_filtered(question, limit, chat_history)
         else:
-            return self._handle_pure_temporal(question, limit)
+            return self._handle_pure_temporal(question, limit, chat_history)
 
-    def handle_filtered(self, question: str, limit: int = 5) -> Dict:
+    def handle_filtered(self, question: str, limit: int = 5, chat_history: Optional[list] = None) -> Dict:
         """Handle a filtered-temporal query (time + content filter).
 
         Args:
             question: User's question
             limit: Maximum number of emails to retrieve
+            chat_history: Optional list of previous messages for context
 
         Returns:
             Query result with answer and sources
         """
-        return self._handle_filtered(question, limit)
+        return self._handle_filtered(question, limit, chat_history)
 
-    def _handle_pure_temporal(self, question: str, limit: int) -> Dict:
+    def _handle_pure_temporal(self, question: str, limit: int, chat_history: Optional[list] = None) -> Dict:
         """Handle pure temporal queries without content filtering."""
-        logger.info("[TEMPORAL] Processing pure temporal query")
+        logger.info(f"[TEMPORAL] Processing pure temporal query (model: {self.llm.provider}/{self.llm.model})")
 
         # Get recent emails directly from database (sorted by date)
         recent_emails = self.storage.list_messages(limit=limit, offset=0)
@@ -59,7 +61,7 @@ class TemporalHandler(QueryHandler):
         context = self.context_builder.build_context_from_messages(recent_emails)
 
         # Generate answer using LLM with temporal context
-        answer = self._generate_temporal_answer(question, context)
+        answer = self._generate_temporal_answer(question, context, chat_history)
 
         return self._build_response(
             answer=answer,
@@ -69,16 +71,19 @@ class TemporalHandler(QueryHandler):
             confidence='high',
         )
 
-    def _handle_filtered(self, question: str, limit: int) -> Dict:
+    def _handle_filtered(self, question: str, limit: int, chat_history: Optional[list] = None) -> Dict:
         """Handle temporal queries with content filtering."""
-        logger.info("[FILTERED TEMPORAL] Processing query with content + temporal filtering")
+        logger.info(
+            f"[FILTERED TEMPORAL] Processing query with content + temporal filtering "
+            f"(model: {self.llm.provider}/{self.llm.model})"
+        )
 
         # Extract keywords from the question
         keywords = self._extract_keywords(question)
 
         if not keywords:
             logger.debug("[FILTERED TEMPORAL] No keywords found, falling back to temporal")
-            return self._handle_pure_temporal(question, limit)
+            return self._handle_pure_temporal(question, limit, chat_history)
 
         logger.debug("[FILTERED TEMPORAL] Searching with keywords: %s", keywords)
 
@@ -101,7 +106,7 @@ class TemporalHandler(QueryHandler):
         context = self.context_builder.build_context_from_messages(emails)
 
         # Generate answer using LLM
-        answer = self._generate_filtered_answer(question, context, keywords)
+        answer = self._generate_filtered_answer(question, context, keywords, chat_history)
 
         return self._build_response(
             answer=answer,
@@ -163,19 +168,29 @@ class TemporalHandler(QueryHandler):
         logger.debug("[FILTERED TEMPORAL] Fallback keywords: %s", keywords)
         return keywords[:3]
 
-    def _generate_temporal_answer(self, question: str, context: str) -> str:
+    def _generate_temporal_answer(self, question: str, context: str, chat_history: Optional[list] = None) -> str:
         """Generate answer for pure temporal queries."""
-        prompt = TEMPORAL_QUERY_PROMPT.format(
+        # Format chat history for context
+        history_context = self._format_chat_history(chat_history) if chat_history else ""
+        
+        # Create enhanced prompt with chat history
+        enhanced_prompt = TEMPORAL_QUERY_PROMPT.format(
             context=context,
             question=question,
-        )
-        return self._call_llm(prompt)
+        ) + history_context
+        
+        return self._call_llm(enhanced_prompt)
 
-    def _generate_filtered_answer(self, question: str, context: str, keywords: List[str]) -> str:
+    def _generate_filtered_answer(self, question: str, context: str, keywords: List[str], chat_history: Optional[list] = None) -> str:
         """Generate answer for filtered-temporal queries."""
-        prompt = FILTERED_TEMPORAL_PROMPT.format(
+        # Format chat history for context
+        history_context = self._format_chat_history(chat_history) if chat_history else ""
+        
+        # Create enhanced prompt with chat history
+        enhanced_prompt = FILTERED_TEMPORAL_PROMPT.format(
             keywords=', '.join(keywords),
             context=context,
             question=question,
-        )
-        return self._call_llm(prompt)
+        ) + history_context
+        
+        return self._call_llm(enhanced_prompt)

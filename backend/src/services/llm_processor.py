@@ -27,7 +27,11 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.messages import SystemMessage, HumanMessage
 from ..classification_labels import ALLOWED_LABELS
-from .prompt_templates import CLASSIFICATION_SYSTEM_MESSAGE, build_classification_prompt
+from .prompt_templates import (
+    CLASSIFICATION_SYSTEM_MESSAGE,
+    build_classification_prompt,
+    CHAT_TITLE_GENERATION_PROMPT,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -460,3 +464,52 @@ class LLMProcessor:
         summary = subject[:100] if subject else "No subject"
 
         return {"labels": labels, "priority": priority, "summary": summary}
+
+    async def generate_chat_title(self, first_message: str) -> str:
+        """Generate a concise title for a chat session based on the first user message.
+
+        Args:
+            first_message: The first user message in the chat session
+
+        Returns:
+            A concise title (3-7 words) summarizing the conversation topic
+        """
+        import asyncio
+
+        logger.debug(f"[LLM TITLE] Generating title for message: '{first_message[:50]}...'")
+
+        # For rules provider, generate simple keyword-based title
+        if self.provider == "rules":
+            words = first_message.split()[:5]
+            title = " ".join(words)
+            if len(title) > 50:
+                title = title[:47] + "..."
+            logger.debug(f"[LLM TITLE] Rules-based title: '{title}'")
+            return title or "New Chat"
+
+        # Build prompt from template
+        prompt = CHAT_TITLE_GENERATION_PROMPT.format(first_message=first_message)
+
+        try:
+            # Run LLM invocation in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            title = await loop.run_in_executor(None, self.invoke, prompt)
+
+            # Clean up the response
+            title = title.strip().strip('"').strip("'")
+
+            # Ensure reasonable length
+            if len(title) > 60:
+                title = title[:57] + "..."
+
+            logger.info(f"[LLM TITLE] Generated title: '{title}'")
+            return title
+
+        except Exception as e:
+            logger.error(f"[LLM TITLE] Failed to generate title: {e}")
+            # Fallback to truncated first message
+            words = first_message.split()[:5]
+            fallback = " ".join(words)
+            if len(fallback) > 50:
+                fallback = fallback[:47] + "..."
+            return fallback or "New Chat"

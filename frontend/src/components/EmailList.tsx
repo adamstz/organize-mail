@@ -24,7 +24,7 @@ interface EmailListProps {
   selectedModel?: string;
 }
 
-const EmailList: React.FC<EmailListProps> = ({ filters, searchQuery = '', sortOrder = 'recent', selectedModel = 'gemma:2b' }) => {
+const EmailList: React.FC<EmailListProps> = ({ filters, searchQuery = '', sortOrder = 'recent', selectedModel = 'qwen2.5:7b' }) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [emails, setEmails] = useState<Email[]>(exampleEmails);
   const [loading, setLoading] = useState<boolean>(false);

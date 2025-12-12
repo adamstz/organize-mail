@@ -16,4 +16,14 @@ export interface ChatMessage {
   confidence?: string;
   isLoading?: boolean;
   error?: string;
+  chat_session_id?: string;
 }
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
