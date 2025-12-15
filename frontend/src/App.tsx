@@ -13,9 +13,64 @@ import { logger } from './utils/logger';
 
 const theme = createTheme({
   palette: {
-    mode: 'light',
+    mode: 'dark',
     primary: {
-      main: '#1976d2',
+      main: '#60a5fa', // Modern blue
+      light: '#93c5fd',
+      dark: '#3b82f6',
+    },
+    secondary: {
+      main: '#a78bfa', // Modern purple
+      light: '#c4b5fd',
+      dark: '#8b5cf6',
+    },
+    background: {
+      default: '#0f172a', // Deep slate
+      paper: '#1e293b', // Slate gray
+    },
+    text: {
+      primary: '#f1f5f9', // Light slate
+      secondary: '#cbd5e1', // Slate 300
+    },
+    divider: '#334155', // Slate 700
+    error: {
+      main: '#ef4444',
+    },
+    warning: {
+      main: '#f59e0b',
+    },
+    success: {
+      main: '#10b981',
+    },
+  },
+  typography: {
+    fontFamily: '"Inter", "Segoe UI", "Roboto", "Helvetica", "Arial", sans-serif',
+  },
+  shape: {
+    borderRadius: 8,
+  },
+  components: {
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          backgroundImage: 'none',
+        },
+      },
+    },
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          textTransform: 'none',
+          fontWeight: 500,
+        },
+      },
+    },
+    MuiChip: {
+      styleOverrides: {
+        root: {
+          fontWeight: 500,
+        },
+      },
     },
   },
 });
@@ -166,7 +221,7 @@ const App: React.FC = () => {
         sx={{
           height: 'calc(100vh - 64px)', // Subtract AppBar height
           width: '100vw',
-          bgcolor: 'grey.100',
+          bgcolor: 'background.default',
           display: 'flex',
           p: 0,
           overflow: 'hidden',

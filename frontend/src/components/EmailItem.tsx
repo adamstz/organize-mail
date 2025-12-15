@@ -139,16 +139,21 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
         alignItems="flex-start"
         sx={{
           cursor: 'pointer',
-          '&:hover': { backgroundColor: 'action.hover' },
+          '&:hover': { 
+            backgroundColor: 'rgba(96, 165, 250, 0.08)',
+            borderColor: 'primary.main',
+          },
           borderBottom: '1px solid',
           borderColor: 'divider',
           bgcolor: 'background.paper',
           mb: 2,
-          borderRadius: 1,
+          borderRadius: 2,
           p: 2,
-          boxShadow: 1,
+          boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.3)',
+          border: '1px solid',
           display: 'flex',
           alignItems: 'center',
+          transition: 'all 0.2s ease',
         }}
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
@@ -239,7 +244,7 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
         </Box>
       </ListItem>
       <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-        <Box sx={{ p: 3, backgroundColor: 'grey.50' }}>
+        <Box sx={{ p: 3, backgroundColor: 'rgba(15, 23, 42, 0.5)', border: '1px solid', borderColor: 'divider', borderRadius: 2, mt: 1 }}>
           <Box sx={{ mb: 2 }}>
             <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
               Subject:

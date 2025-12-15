@@ -242,7 +242,9 @@ const ChatInterface: React.FC = () => {
                   elevation={1}
                   sx={{
                     p: 2,
-                    bgcolor: 'grey.100',
+                    bgcolor: 'background.paper',
+                    border: '1px solid',
+                    borderColor: 'divider',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 1,
