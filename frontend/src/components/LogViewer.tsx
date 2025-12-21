@@ -61,7 +61,7 @@ const LogViewer: React.FC<LogViewerProps> = ({ onClose }) => {
 
   useEffect(() => {
     if (autoScroll && !isPaused) {
-      logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      logsEndRef.current?.scrollIntoView({ behavior: 'auto' });
     }
   }, [logs, autoScroll, isPaused]);
 

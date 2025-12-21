@@ -27,7 +27,11 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.messages import SystemMessage, HumanMessage
 from ..classification_labels import ALLOWED_LABELS
-from .prompt_templates import CLASSIFICATION_SYSTEM_MESSAGE, build_classification_prompt
+from .prompt_templates import (
+    CLASSIFICATION_SYSTEM_MESSAGE,
+    build_classification_prompt,
+    CHAT_TITLE_GENERATION_PROMPT,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -107,9 +111,37 @@ class LLMProcessor:
         elif self.provider == "anthropic":
             return "claude-3-haiku-20240307"
         elif self.provider == "ollama":
-            return "llama3"
+            return self._get_best_ollama_model()
 
         return ""
+
+    def _get_best_ollama_model(self) -> str:
+        """Get the best available Ollama model by selecting the largest one.
+
+        Returns:
+            The name of the best available model, or 'llama3' as fallback.
+        """
+        host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+        try:
+            req = urllib.request.Request(f"{host}/api/tags", method="GET")
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read())
+                models = data.get("models", [])
+
+                if not models:
+                    logger.warning("[LLM] No Ollama models found, using fallback 'llama3'")
+                    return "llama3"
+
+                # Sort by size (descending) to get the most capable model
+                sorted_models = sorted(models, key=lambda m: m.get("size", 0), reverse=True)
+                best_model = sorted_models[0]["name"]
+
+                logger.info(f"[LLM] Auto-selected Ollama model: {best_model} (size: {sorted_models[0].get('size', 0)} bytes)")
+                return best_model
+
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"[LLM] Failed to fetch Ollama models: {e}, using fallback 'llama3'")
+            return "llama3"
 
     def _initialize_llm(self) -> Optional[BaseChatModel]:
         """Initialize LangChain LLM based on provider.
@@ -460,3 +492,52 @@ class LLMProcessor:
         summary = subject[:100] if subject else "No subject"
 
         return {"labels": labels, "priority": priority, "summary": summary}
+
+    async def generate_chat_title(self, first_message: str) -> str:
+        """Generate a concise title for a chat session based on the first user message.
+
+        Args:
+            first_message: The first user message in the chat session
+
+        Returns:
+            A concise title (3-7 words) summarizing the conversation topic
+        """
+        import asyncio
+
+        logger.debug(f"[LLM TITLE] Generating title for message: '{first_message[:50]}...'")
+
+        # For rules provider, generate simple keyword-based title
+        if self.provider == "rules":
+            words = first_message.split()[:5]
+            title = " ".join(words)
+            if len(title) > 50:
+                title = title[:47] + "..."
+            logger.debug(f"[LLM TITLE] Rules-based title: '{title}'")
+            return title or "New Chat"
+
+        # Build prompt from template
+        prompt = CHAT_TITLE_GENERATION_PROMPT.format(first_message=first_message)
+
+        try:
+            # Run LLM invocation in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            title = await loop.run_in_executor(None, self.invoke, prompt)
+
+            # Clean up the response
+            title = title.strip().strip('"').strip("'")
+
+            # Ensure reasonable length
+            if len(title) > 60:
+                title = title[:57] + "..."
+
+            logger.info(f"[LLM TITLE] Generated title: '{title}'")
+            return title
+
+        except Exception as e:
+            logger.error(f"[LLM TITLE] Failed to generate title: {e}")
+            # Fallback to truncated first message
+            words = first_message.split()[:5]
+            fallback = " ".join(words)
+            if len(fallback) > 50:
+                fallback = fallback[:47] + "..."
+            return fallback or "New Chat"

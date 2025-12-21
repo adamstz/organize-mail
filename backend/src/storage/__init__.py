@@ -30,6 +30,13 @@ from .storage import (
     list_classified_messages,
     list_unclassified_messages,
     list_messages_by_filters,
+    create_chat_session,
+    list_chat_sessions,
+    get_chat_session_messages,
+    save_message_to_chat_session,
+    delete_chat_session,
+    update_chat_session_title,
+    update_chat_session_timestamp,
 )
 from .sqlite_storage import SQLiteStorage, default_db_path
 from .memory_storage import InMemoryStorage
@@ -63,6 +70,13 @@ __all__ = [
     "list_classified_messages",
     "list_unclassified_messages",
     "list_messages_by_filters",
+    "create_chat_session",
+    "list_chat_sessions",
+    "get_chat_session_messages",
+    "save_message_to_chat_session",
+    "delete_chat_session",
+    "update_chat_session_title",
+    "update_chat_session_timestamp",
     "InMemoryStorage",
     # sqlite
     "SQLiteStorage",

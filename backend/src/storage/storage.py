@@ -233,3 +233,53 @@ def list_messages_by_filters(
         limit=limit,
         offset=offset
     )
+
+
+# Chat session methods
+def create_chat_session(title: Optional[str] = None) -> str:
+    """Create a new chat session and return its ID."""
+    return get_storage_backend().create_chat_session(title=title)
+
+
+def list_chat_sessions(limit: int = 50, offset: int = 0) -> List[dict]:
+    """List chat sessions ordered by most recently updated."""
+    return get_storage_backend().list_chat_sessions(limit=limit, offset=offset)
+
+
+def get_chat_session_messages(chat_session_id: str, limit: int = 100, offset: int = 0) -> List[dict]:
+    """Get all messages for a chat session ordered by timestamp."""
+    return get_storage_backend().get_chat_session_messages(chat_session_id=chat_session_id, limit=limit, offset=offset)
+
+
+def save_message_to_chat_session(
+    chat_session_id: str,
+    role: str,
+    content: str,
+    sources: Optional[List[dict]] = None,
+    confidence: Optional[str] = None,
+    query_type: Optional[str] = None
+) -> str:
+    """Save a message to a chat session and return message ID."""
+    return get_storage_backend().save_message_to_chat_session(
+        chat_session_id=chat_session_id,
+        role=role,
+        content=content,
+        sources=sources,
+        confidence=confidence,
+        query_type=query_type
+    )
+
+
+def delete_chat_session(chat_session_id: str) -> None:
+    """Delete a chat session and all its messages."""
+    get_storage_backend().delete_chat_session(chat_session_id=chat_session_id)
+
+
+def update_chat_session_title(chat_session_id: str, title: str) -> None:
+    """Update the title of a chat session."""
+    get_storage_backend().update_chat_session_title(chat_session_id=chat_session_id, title=title)
+
+
+def update_chat_session_timestamp(chat_session_id: str) -> None:
+    """Update the updated_at timestamp of a chat session."""
+    get_storage_backend().update_chat_session_timestamp(chat_session_id=chat_session_id)

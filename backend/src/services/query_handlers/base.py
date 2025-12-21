@@ -40,12 +40,13 @@ class QueryHandler(ABC):
         self.embedder = embedder
 
     @abstractmethod
-    def handle(self, question: str, limit: int = 5) -> Dict:
+    def handle(self, question: str, limit: int = 5, chat_history: Optional[list] = None) -> Dict:
         """Handle a query and return a response.
 
         Args:
             question: The user's question
             limit: Maximum number of emails to retrieve/include
+            chat_history: Optional list of previous messages for context
 
         Returns:
             Dict with keys:
@@ -88,6 +89,26 @@ class QueryHandler(ABC):
         }
         response.update(extra)
         return response
+
+    def _format_chat_history(self, chat_history: Optional[list] = None) -> str:
+        """Format chat history for inclusion in prompts.
+
+        Args:
+            chat_history: List of messages [{"role": "user/assistant", "content": "..."}]
+
+        Returns:
+            Formatted string representation of chat history
+        """
+        if not chat_history:
+            return ""
+
+        formatted = "\n\nPrevious conversation:\n"
+        for msg in chat_history[-6:]:  # Last 3 exchanges (6 messages)
+            role = "User" if msg.get("role") == "user" else "Assistant"
+            content = msg.get("content", "")
+            formatted += f"{role}: {content}\n"
+
+        return formatted
 
     def _format_sources(self, emails: List[MailMessage], similarity: float = 1.0) -> List[Dict]:
         """Format a list of emails into source metadata.
@@ -146,7 +167,11 @@ class QueryHandler(ABC):
 
         if self.llm.llm:
             messages = [
-                SystemMessage(content="You are a helpful assistant that provides concise answers."),
+                SystemMessage(
+                    content="You are a precise extraction assistant. "
+                    "Follow instructions exactly. "
+                    "Return only the requested information with no explanations or preambles."
+                ),
                 HumanMessage(content=prompt)
             ]
             response = self.llm.llm.invoke(messages)

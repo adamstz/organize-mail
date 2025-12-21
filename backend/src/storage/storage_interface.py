@@ -186,3 +186,89 @@ class StorageBackend:
             Count of messages with UNREAD label.
         """
         raise NotImplementedError()
+
+    # Chat session management methods
+    def create_chat_session(self, title: Optional[str] = None) -> str:
+        """Create a new chat session.
+
+        Args:
+            title: Optional session title
+
+        Returns:
+            Chat session ID (UUID)
+        """
+        raise NotImplementedError()
+
+    def list_chat_sessions(self, limit: int = 100, offset: int = 0) -> List[dict]:
+        """List all chat sessions.
+
+        Args:
+            limit: Maximum number of sessions to return
+            offset: Number of sessions to skip
+
+        Returns:
+            List of dicts with id, title, created_at, updated_at, message_count
+        """
+        raise NotImplementedError()
+
+    def get_chat_session_messages(self, chat_session_id: str, limit: int = 100, offset: int = 0) -> List[dict]:
+        """Get all messages for a chat session.
+
+        Args:
+            chat_session_id: Chat session ID
+            limit: Maximum number of messages to return
+            offset: Number of messages to skip
+
+        Returns:
+            List of dicts with id, role, content, sources, confidence, query_type, timestamp
+        """
+        raise NotImplementedError()
+
+    def save_message_to_chat_session(
+        self,
+        chat_session_id: str,
+        role: str,
+        content: str,
+        sources: Optional[List[dict]] = None,
+        confidence: Optional[str] = None,
+        query_type: Optional[str] = None
+    ) -> str:
+        """Save a message to a chat session.
+
+        Args:
+            chat_session_id: Chat session ID
+            role: Message role ('user' or 'assistant')
+            content: Message content
+            sources: Optional list of source email metadata
+            confidence: Optional confidence level
+            query_type: Optional query type
+
+        Returns:
+            Message ID (UUID)
+        """
+        raise NotImplementedError()
+
+    def delete_chat_session(self, chat_session_id: str) -> None:
+        """Delete a chat session and all its messages.
+
+        Args:
+            chat_session_id: Chat session ID
+        """
+        raise NotImplementedError()
+
+    def update_chat_session_title(self, chat_session_id: str, title: str) -> None:
+        """Update a chat session's title.
+
+        Args:
+            chat_session_id: Chat session ID
+            title: New title
+        """
+        raise NotImplementedError()
+
+    def update_chat_session_timestamp(self, chat_session_id: str) -> None:
+        """Update a chat session's updated_at timestamp.
+
+        Args:
+            chat_session_id: Chat session ID
+        """
+        raise NotImplementedError()

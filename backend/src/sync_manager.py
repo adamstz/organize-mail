@@ -104,7 +104,6 @@ class SyncManager:
             refresh_token = os.environ.get("GOOGLE_REFRESH")
 
             if not all([client_id, client_secret, refresh_token]):
-                logger.warning("Gmail credentials not configured")
                 return None
 
             creds = build_credentials_from_oauth(client_id, client_secret, refresh_token)
@@ -121,7 +120,7 @@ class SyncManager:
             return result.get("resultSizeEstimate", 0)
 
         except Exception as e:
-            logger.error(f"Error getting Gmail inbox count: {e}")
+            logger.debug(f"Gmail not available: {e}")
             return None
 
     def _get_unembedded_count(self) -> int:

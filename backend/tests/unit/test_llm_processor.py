@@ -97,11 +97,12 @@ class TestModelNameSelection:
         os.environ.pop("LLM_PROVIDER", None)
 
     def test_default_model_for_ollama(self):
-        """Ollama provider should default to llama3."""
+        """Ollama provider should auto-select best available model."""
         os.environ["LLM_PROVIDER"] = "ollama"
         os.environ.pop("LLM_MODEL", None)
         processor = LLMProcessor()
-        assert processor.model == "llama3"
+        # Should auto-select based on available models, or fall back to 'llama3'
+        assert processor.model is not None and len(processor.model) > 0
         os.environ.pop("LLM_PROVIDER", None)
 
 

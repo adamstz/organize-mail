@@ -112,6 +112,58 @@ class SQLiteStorage(StorageBackend):
             ON classifications(created_at DESC)
             """
         )
+
+        # Chat sessions table
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+        # Chat messages table
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id TEXT PRIMARY KEY,
+                chat_session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                sources TEXT,
+                confidence TEXT,
+                query_type TEXT,
+                timestamp TEXT NOT NULL,
+                FOREIGN KEY(chat_session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        # Create indexes for chat sessions
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated_at
+            ON chat_sessions(updated_at DESC)
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_session_id
+            ON chat_messages(chat_session_id)
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_timestamp
+            ON chat_messages(timestamp)
+            """
+        )
+
         conn.commit()
         conn.close()
 
@@ -713,3 +765,164 @@ class SQLiteStorage(StorageBackend):
             )
 
         return messages, total
+
+    # Chat session methods
+    def create_chat_session(self, title: Optional[str] = None) -> str:
+        """Create a new chat session and return its ID."""
+        import uuid
+        chat_session_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+
+        conn = self.connect()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO chat_sessions (id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (chat_session_id, title or "New Chat", now, now)
+        )
+        conn.commit()
+        conn.close()
+        return chat_session_id
+
+    def list_chat_sessions(self, limit: int = 50, offset: int = 0) -> List[dict]:
+        """List chat sessions ordered by most recently updated."""
+        conn = self.connect()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, title, created_at, updated_at,
+                   (SELECT COUNT(*) FROM chat_messages WHERE chat_session_id = chat_sessions.id) as message_count
+            FROM chat_sessions
+            ORDER BY updated_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset)
+        )
+        rows = cur.fetchall()
+        conn.close()
+
+        return [
+            {
+                'id': row['id'],
+                'title': row['title'],
+                'created_at': row['created_at'],
+                'updated_at': row['updated_at'],
+                'message_count': row['message_count']
+            }
+            for row in rows
+        ]
+
+    def get_chat_session_messages(self, chat_session_id: str, limit: int = 100, offset: int = 0) -> List[dict]:
+        """Get all messages for a chat session ordered by timestamp."""
+        conn = self.connect()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, chat_session_id, role, content, sources, confidence, query_type, timestamp
+            FROM chat_messages
+            WHERE chat_session_id = ?
+            ORDER BY timestamp ASC
+            LIMIT ? OFFSET ?
+            """,
+            (chat_session_id, limit, offset)
+        )
+        rows = cur.fetchall()
+        conn.close()
+
+        return [
+            {
+                'id': row['id'],
+                'chat_session_id': row['chat_session_id'],
+                'role': row['role'],
+                'content': row['content'],
+                'sources': self._deserialize(row['sources']) if row['sources'] else None,
+                'confidence': row['confidence'],
+                'query_type': row['query_type'],
+                'timestamp': row['timestamp']
+            }
+            for row in rows
+        ]
+
+    def save_message_to_chat_session(
+        self,
+        chat_session_id: str,
+        role: str,
+        content: str,
+        sources: Optional[List[dict]] = None,
+        confidence: Optional[str] = None,
+        query_type: Optional[str] = None
+    ) -> str:
+        """Save a message to a chat session and return message ID."""
+        import uuid
+        message_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+
+        conn = self.connect()
+        cur = conn.cursor()
+
+        # Insert message
+        cur.execute(
+            """
+            INSERT INTO chat_messages (id, chat_session_id, role, content, sources, confidence, query_type, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (message_id, chat_session_id, role, content, self._serialize(sources) if sources else None, confidence, query_type, now)
+        )
+
+        # Update session timestamp
+        cur.execute(
+            """
+            UPDATE chat_sessions
+            SET updated_at = ?
+            WHERE id = ?
+            """,
+            (now, chat_session_id)
+        )
+
+        conn.commit()
+        conn.close()
+        return message_id
+
+    def delete_chat_session(self, chat_session_id: str) -> None:
+        """Delete a chat session and all its messages."""
+        conn = self.connect()
+        cur = conn.cursor()
+
+        # Messages will be deleted via CASCADE
+        cur.execute("DELETE FROM chat_sessions WHERE id = ?", (chat_session_id,))
+
+        conn.commit()
+        conn.close()
+
+    def update_chat_session_title(self, chat_session_id: str, title: str) -> None:
+        """Update the title of a chat session."""
+        conn = self.connect()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE chat_sessions
+            SET title = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (title, datetime.now(timezone.utc).isoformat(), chat_session_id)
+        )
+        conn.commit()
+        conn.close()
+
+    def update_chat_session_timestamp(self, chat_session_id: str) -> None:
+        """Update the updated_at timestamp of a chat session."""
+        conn = self.connect()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE chat_sessions
+            SET updated_at = ?
+            WHERE id = ?
+            """,
+            (datetime.now(timezone.utc).isoformat(), chat_session_id)
+        )
+        conn.commit()
+        conn.close()
+

@@ -22,7 +22,7 @@ from src.services.query_classifier import QueryClassifier
 from src.services.embedding_service import EmbeddingService
 from src.services.llm_processor import LLMProcessor
 from src.storage.memory_storage import InMemoryStorage
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 
 @pytest.fixture
@@ -30,7 +30,11 @@ def rag_engine():
     """Create a RAG engine instance for testing."""
     storage = InMemoryStorage()
     storage.init_db()
-    embedding = EmbeddingService()
+    # Mock embedding service to avoid downloading models
+    embedding = MagicMock(spec=EmbeddingService)
+    embedding.embedding_dim = 384
+    embedding.embed_text.return_value = [0.1] * 384
+    embedding.embed_batch.return_value = [[0.1] * 384]
     with patch.object(LLMProcessor, '_is_ollama_running', return_value=False):
         llm = LLMProcessor()
     return RAGQueryEngine(storage, embedding, llm)

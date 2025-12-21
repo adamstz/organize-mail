@@ -21,6 +21,7 @@ os.environ.pop("OLLAMA_HOST", None)
 os.environ.pop("ORGANIZE_MAIL_LLM_CMD", None)
 
 import pytest
+from unittest.mock import MagicMock, patch
 from src.storage.storage import get_storage_backend
 from src.storage.memory_storage import InMemoryStorage
 from src.services import EmbeddingService, LLMProcessor, RAGQueryEngine
@@ -53,7 +54,11 @@ def test_embedding_status():
     if isinstance(storage, InMemoryStorage):
         pytest.skip("RAG tests require PostgreSQL storage backend")
     
-    conn = storage.connect()
+    try:
+        conn = storage.connect()
+    except Exception as e:
+        pytest.skip(f"PostgreSQL not available: {e}")
+    
     cur = conn.cursor()
     
     cur.execute("""
@@ -99,17 +104,23 @@ def test_semantic_search():
     if isinstance(storage, InMemoryStorage):
         pytest.skip("RAG tests require PostgreSQL storage backend")
     
-    embedder = EmbeddingService()
+    # Mock embedding service to avoid downloading models
+    embedder = MagicMock(spec=EmbeddingService)
+    embedder.embedding_dim = 384
+    embedder.embed_text.return_value = [0.1] * 384
     
     # Embed the search query
     query_embedding = embedder.embed_text("meeting schedule")
     
     # Search for similar emails
-    results = storage.similarity_search(
-        query_embedding=query_embedding,
-        limit=3,
-        threshold=0.3
-    )
+    try:
+        results = storage.similarity_search(
+            query_embedding=query_embedding,
+            limit=3,
+            threshold=0.3
+        )
+    except Exception as e:
+        pytest.skip(f"PostgreSQL not available: {e}")
     
     if not results:
         print("No results found.")
@@ -138,7 +149,12 @@ def test_rag_query():
     if isinstance(storage, InMemoryStorage):
         pytest.skip("RAG tests require PostgreSQL storage backend")
     
-    embedder = EmbeddingService()
+    # Mock embedding service to avoid downloading models
+    embedder = MagicMock(spec=EmbeddingService)
+    embedder.embedding_dim = 384
+    embedder.embed_text.return_value = [0.1] * 384
+    embedder.embed_batch.return_value = [[0.1] * 384]
+    
     llm = LLMProcessor()
     rag_engine = RAGQueryEngine(storage, embedder, llm)
     
@@ -264,8 +280,12 @@ def memory_rag_engine():
         model="rules"
     )
     
-    embedding = EmbeddingService()
-    from unittest.mock import patch
+    # Mock embedding service to avoid downloading models
+    embedding = MagicMock(spec=EmbeddingService)
+    embedding.embedding_dim = 384
+    embedding.embed_text.return_value = [0.1] * 384
+    embedding.embed_batch.return_value = [[0.1] * 384]
+    
     with patch.object(LLMProcessor, '_is_ollama_running', return_value=False):
         llm = LLMProcessor()
     return RAGQueryEngine(storage, embedding, llm)

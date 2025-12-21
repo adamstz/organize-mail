@@ -27,3 +27,7 @@ pgvector>=0.2.0  # PostgreSQL vector extension Python client
 bleach>=6.0.0  # HTML sanitization
 beautifulsoup4>=4.12.0  # HTML parsing and manipulation
 tinycss2>=1.2.0  # CSS parsing for sanitization
+
+# Development / Testing tools
+pytest>=7.0
+flake8>=6.0

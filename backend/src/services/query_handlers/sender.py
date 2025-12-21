@@ -1,5 +1,5 @@
 """Handler for search-by-sender queries."""
-from typing import Dict
+from typing import Dict, Optional
 import logging
 
 from .base import QueryHandler
@@ -11,21 +11,22 @@ logger = logging.getLogger(__name__)
 class SenderHandler(QueryHandler):
     """Handle search queries for emails from a specific sender."""
 
-    def handle(self, question: str, limit: int = 5) -> Dict:
+    def handle(self, question: str, limit: int = 5, chat_history: Optional[list] = None) -> Dict:
         """Handle a search-by-sender query.
 
         Args:
             question: User's question
             limit: Maximum number of emails to return
+            chat_history: Optional list of previous messages for context
 
         Returns:
             Query result with emails from sender
         """
-        logger.info("[SEARCH BY SENDER] Processing sender search")
+        logger.info(f"[SEARCH BY SENDER] Processing sender search (model: {self.llm.provider}/{self.llm.model})")
 
-        # Extract sender from question
+        # Extract sender from question (considering chat history for pronoun resolution)
         try:
-            sender = self._extract_sender(question)
+            sender = self._extract_sender(question, chat_history)
             logger.debug("[SEARCH BY SENDER] Extracted sender: %s", sender)
         except Exception as e:
             logger.debug("[SEARCH BY SENDER] Failed to extract sender: %s", e)
@@ -49,9 +50,9 @@ class SenderHandler(QueryHandler):
                 confidence='none',
             )
 
-        # Build context and generate answer
+        # Build context and generate answer (include chat history for context)
         context = self.context_builder.build_context_from_messages(emails)
-        answer = self._generate_answer(question, context, sender)
+        answer = self._generate_answer(question, context, sender, chat_history)
 
         return self._build_response(
             answer=answer,
@@ -61,12 +62,19 @@ class SenderHandler(QueryHandler):
             confidence='high',
         )
 
-    def _extract_sender(self, question: str) -> str:
+    def _extract_sender(self, question: str, chat_history: Optional[list] = None) -> str:
         """Extract sender name/email from the question.
+
+        Args:
+            question: Current question
+            chat_history: Previous conversation for context (helps with pronouns like "them")
 
         Raises ValueError if extraction fails.
         """
-        prompt = SENDER_EXTRACTION_PROMPT.format(question=question)
+        # If there's chat history, include it for pronoun resolution
+        history_context = self._format_chat_history(chat_history) if chat_history else ""
+
+        prompt = SENDER_EXTRACTION_PROMPT.format(question=question) + history_context
         response = self._call_llm_simple(prompt).strip()
 
         # Clean up
@@ -83,11 +91,13 @@ class SenderHandler(QueryHandler):
 
         return sender
 
-    def _generate_answer(self, question: str, context: str, sender: str) -> str:
+    def _generate_answer(self, question: str, context: str, sender: str, chat_history: Optional[list] = None) -> str:
         """Generate answer using the LLM with sender context."""
+        history_context = self._format_chat_history(chat_history) if chat_history else ""
+
         prompt = SEARCH_BY_SENDER_PROMPT.format(
             sender=sender,
             context=context,
             question=question,
-        )
+        ) + history_context
         return self._call_llm(prompt)

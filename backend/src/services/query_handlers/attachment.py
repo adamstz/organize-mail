@@ -1,5 +1,5 @@
 """Handler for search-by-attachment queries."""
-from typing import Dict
+from typing import Dict, Optional
 import logging
 
 from .base import QueryHandler
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class AttachmentHandler(QueryHandler):
     """Handle search queries for emails with attachments."""
 
-    def handle(self, question: str, limit: int = 5) -> Dict:
+    def handle(self, question: str, limit: int = 5, chat_history: Optional[list] = None) -> Dict:
         """Handle a search-by-attachment query.
 
         Args:
@@ -21,7 +21,7 @@ class AttachmentHandler(QueryHandler):
         Returns:
             Query result with emails that have attachments
         """
-        logger.info("[SEARCH BY ATTACHMENT] Processing attachment search")
+        logger.info(f"[SEARCH BY ATTACHMENT] Processing attachment search (model: {self.llm.provider}/{self.llm.model})")
 
         # Query database for emails with attachments
         emails = self.storage.search_by_attachment(limit=limit)

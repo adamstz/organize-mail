@@ -67,22 +67,27 @@ QUERY_CLASSIFICATION_PROMPT = """Classify this email query in ONE word:
 
 Query types:
 - conversation: greetings, thanks, help requests (hi, hello, thank you, what can you do)
-- aggregation: statistics, counting, top senders (how many total, who emails most, count of, how many [topic])
-- search-by-sender: find all from specific sender without time constraint (all from X, emails from Y, show me X's emails)
+- aggregation: statistics, counting, top senders (how many total, who emails most, count of)
+- search-by-sender: find emails from specific sender/company
+  (all from X, emails from Y, show me X's emails, last 5 uber mail, recent amazon emails)
 - search-by-attachment: find emails with attachments (with attachments, has files)
 - classification: label-based queries (job rejections, spam emails, receipts)
-- filtered-temporal: time + topic/sender (recent uber emails, latest from amazon, last week's newsletters)
-- temporal: pure time-based (recent emails, last 5 emails, newest messages) without specific topic
+- filtered-temporal: time + topic/keyword NOT sender
+  (recent emails about project, latest regarding meeting)
+- temporal: pure time-based (recent emails, last 5 emails, newest messages)
+  WITHOUT any specific company/sender/topic
 - semantic: content search without time constraint (about project alpha, regarding meeting)
 
 Rules:
-- If asks "how many" with a specific topic/sender (e.g., "how many uber emails") → aggregation
-- If has BOTH time word (recent/latest/last) AND topic/sender → filtered-temporal
-- If asks "how many total" or "who emails most" → aggregation
-- If "all from [sender]" or "show me [sender] emails" without counting → search-by-sender
-- If greeting/thanks → conversation
-- If time word but no topic → temporal
-- Otherwise → semantic
+1. If mentions a COMPANY/SENDER name (uber, amazon, google, netflix, paypal, etc.) → search-by-sender
+   Examples: "last 5 ubereats mail", "recent uber emails", "show me netflix messages" → search-by-sender
+2. If "how many" with specific topic/sender → aggregation
+3. If time + content words (about/regarding) but NO company name → filtered-temporal
+4. If time word (last/recent) but NO company/sender/topic → temporal
+5. If greeting/thanks → conversation
+6. Otherwise → semantic
+
+CRITICAL: Company/sender names (uber, amazon, netflix, etc.) → search-by-sender even with time words
 
 Answer with ONE word only:"""
 
@@ -286,25 +291,24 @@ Keywords:"""
 # SENDER EXTRACTION PROMPTS
 # =============================================================================
 
-SENDER_EXTRACTION_PROMPT = """Extract the sender name or email address from this query.
-Return ONLY the sender name/email, nothing else.
+SENDER_EXTRACTION_PROMPT = """Extract the sender name from the query. Return ONLY the sender name, nothing else.
+
+Query: "emails from uber"
+Sender: uber
+
+Query: "show me uber eats emails"
+Sender: uber eats
+
+Query: "list last 5 ubereats mail"
+Sender: ubereats
+
+Query: "recent paypal receipts"
+Sender: paypal
+
+Query: "all my google mail"
+Sender: google
 
 Query: "{question}"
-
-Examples:
-- "emails from uber" → uber
-- "all from amazon" → amazon
-- "linkedin messages" → linkedin
-- "john@company.com emails" → john@company.com
-- "show me uber eats emails" → uber eats
-- "all my google mail" → google
-
-Important:
-- Return the sender name EXACTLY as mentioned
-- If it's a company with multiple words (like "uber eats"), return both words
-- Do NOT return other words from the query like "the", "my", "show", etc.
-- Return ONLY the sender name
-
 Sender:"""
 
 
@@ -329,3 +333,51 @@ Question: "count my linkedin messages" → Answer: linkedin
 Question: "how many github emails" → Answer: github
 
 Now extract from the user's question above. Return ONLY the company/sender name:"""
+
+
+# =============================================================================
+# CHAT SESSION TITLE GENERATION PROMPTS
+# =============================================================================
+
+CHAT_TITLE_GENERATION_PROMPT = """Generate a concise title (3-7 words) for a chat session.
+
+User question: "{first_message}"
+
+Rules:
+- Return ONLY the title text
+- No quotes, no explanations, no extra words
+- 3-7 words maximum
+- Capture the main topic
+
+Example:
+Question: "What invoices did I receive last month?"
+Title: Recent Invoice Summary
+
+Question: "Show me emails from Amazon"
+Title: Amazon Emails
+
+Now generate the title:"""
+
+
+# =============================================================================
+# CLASSIFICATION HISTORY EXTRACTION PROMPTS
+# =============================================================================
+
+CLASSIFICATION_HISTORY_EXTRACTION_PROMPT = """Based on the conversation history below, what email \
+classification label is being discussed?
+
+{history_context}
+
+Look for patterns like:
+- "promotional emails", "marketing mail", "spam messages"
+- "job applications", "interview emails", "rejection notices"
+- "receipt emails", "finance messages", "security alerts"
+
+Return ONLY the classification label (one word) or "none" if unclear:
+
+Examples:
+History: "how many promotional emails do I have?" → Label: promotional
+History: "97 job applications" → Label: job
+History: "security alerts" → Label: security
+
+Now extract from the history above:"""

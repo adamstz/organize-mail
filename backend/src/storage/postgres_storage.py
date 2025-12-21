@@ -178,6 +178,56 @@ class PostgresStorage(StorageBackend):
             """
         )
 
+        # Chat sessions table
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+
+        # Chat messages table
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id TEXT PRIMARY KEY,
+                chat_session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                sources JSONB,
+                confidence TEXT,
+                query_type TEXT,
+                timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+
+        # Create indexes for chat sessions
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated_at
+            ON chat_sessions(updated_at DESC)
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_session_id
+            ON chat_messages(chat_session_id)
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_timestamp
+            ON chat_messages(timestamp)
+            """
+        )
+
         # Create HNSW indexes for vector similarity search (RAG support)
         # HNSW = Hierarchical Navigable Small World (fast approximate nearest neighbor)
         # vector_cosine_ops = use cosine distance for similarity
@@ -1375,3 +1425,147 @@ class PostgresStorage(StorageBackend):
         conn.close()
 
         return count
+
+    # Chat session management methods
+    def create_chat_session(self, title: Optional[str] = None) -> str:
+        """Create a new chat session."""
+        import uuid
+        from datetime import datetime, timezone
+
+        chat_session_id = str(uuid.uuid4())
+        conn = self.connect()
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            INSERT INTO chat_sessions (id, title, created_at, updated_at)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (chat_session_id, title or "New Chat", datetime.now(timezone.utc), datetime.now(timezone.utc))
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return chat_session_id
+
+    def list_chat_sessions(self, limit: int = 100, offset: int = 0) -> List[dict]:
+        """List all chat sessions."""
+        conn = self.connect()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            """
+            SELECT
+                s.id,
+                s.title,
+                s.created_at,
+                s.updated_at,
+                COUNT(m.id) as message_count
+            FROM chat_sessions s
+            LEFT JOIN chat_messages m ON s.id = m.chat_session_id
+            GROUP BY s.id, s.title, s.created_at, s.updated_at
+            ORDER BY s.updated_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            (limit, offset)
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return [dict(r) for r in rows]
+
+    def get_chat_session_messages(self, chat_session_id: str, limit: int = 100, offset: int = 0) -> List[dict]:
+        """Get all messages for a chat session."""
+        conn = self.connect()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            """
+            SELECT id, chat_session_id, role, content, sources, confidence, query_type, timestamp
+            FROM chat_messages
+            WHERE chat_session_id = %s
+            ORDER BY timestamp ASC
+            LIMIT %s OFFSET %s
+            """,
+            (chat_session_id, limit, offset)
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return [dict(r) for r in rows]
+
+    def save_message_to_chat_session(
+        self,
+        chat_session_id: str,
+        role: str,
+        content: str,
+        sources: Optional[List[dict]] = None,
+        confidence: Optional[str] = None,
+        query_type: Optional[str] = None
+    ) -> str:
+        """Save a message to a chat session."""
+        import uuid
+        from datetime import datetime, timezone
+
+        message_id = str(uuid.uuid4())
+        conn = self.connect()
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            INSERT INTO chat_messages (id, chat_session_id, role, content, sources, confidence, query_type, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (message_id, chat_session_id, role, content, Json(sources) if sources else None,
+             confidence, query_type, datetime.now(timezone.utc))
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        # Update session timestamp
+        self.update_chat_session_timestamp(chat_session_id)
+
+        return message_id
+
+    def delete_chat_session(self, chat_session_id: str) -> None:
+        """Delete a chat session and all its messages."""
+        conn = self.connect()
+        cur = conn.cursor()
+
+        # Messages are deleted automatically due to CASCADE
+        cur.execute("DELETE FROM chat_sessions WHERE id = %s", (chat_session_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    def update_chat_session_title(self, chat_session_id: str, title: str) -> None:
+        """Update a chat session's title."""
+        conn = self.connect()
+        cur = conn.cursor()
+
+        cur.execute(
+            "UPDATE chat_sessions SET title = %s WHERE id = %s",
+            (title, chat_session_id)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    def update_chat_session_timestamp(self, chat_session_id: str) -> None:
+        """Update a chat session's updated_at timestamp."""
+        from datetime import datetime, timezone
+
+        conn = self.connect()
+        cur = conn.cursor()
+
+        cur.execute(
+            "UPDATE chat_sessions SET updated_at = %s WHERE id = %s",
+            (datetime.now(timezone.utc), chat_session_id)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
