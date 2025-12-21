@@ -1,6 +1,6 @@
 """Integration tests for chat history functionality."""
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, MagicMock
 import sys
 import os
 
@@ -31,8 +31,12 @@ class TestChatHistoryFlow:
         self.mock_llm.model = "test-model"
         self.mock_llm.llm = None  # Force fallback to invoke() method
         
-        # Create embedding service
-        self.embedder = EmbeddingService()
+        # Create mock embedding service to avoid downloading models
+        self.embedder = MagicMock(spec=EmbeddingService)
+        self.embedder.embedding_dim = 384
+        # Return deterministic embeddings for testing
+        self.embedder.embed_text.return_value = [0.1] * 384
+        self.embedder.embed_batch.return_value = [[0.1] * 384]
         
         # Create RAG engine
         self.rag_engine = RAGQueryEngine(

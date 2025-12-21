@@ -10,7 +10,7 @@ from src.services.llm_processor import LLMProcessor
 from src.storage.memory_storage import InMemoryStorage
 from src.services.embedding_service import EmbeddingService
 from src.models.message import MailMessage
-from unittest.mock import Mock
+from unittest.mock import Mock, MagicMock
 
 def test_complete_chat_history():
     """Test complete chat history functionality with corrected mappings."""
@@ -24,7 +24,11 @@ def test_complete_chat_history():
         # Create components
         storage = InMemoryStorage()
         llm = LLMProcessor()
-        embedder = EmbeddingService()
+        # Mock embedding service to avoid downloading models
+        embedder = MagicMock(spec=EmbeddingService)
+        embedder.embedding_dim = 384
+        embedder.embed_text.return_value = [0.1] * 384
+        embedder.embed_batch.return_value = [[0.1] * 384]
         rag_engine = RAGQueryEngine(storage, embedder, llm, top_k=5)
         
         print(f"✅ Components initialized with {llm.provider}/{llm.model}")

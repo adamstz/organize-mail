@@ -166,7 +166,12 @@ def main():
         # Create components
         storage = setup_test_data()
         llm = LLMProcessor()
-        embedder = EmbeddingService(storage, llm)
+        # Mock embedding service to avoid downloading models
+        from unittest.mock import MagicMock
+        embedder = MagicMock(spec=EmbeddingService)
+        embedder.embedding_dim = 384
+        embedder.embed_text.return_value = [0.1] * 384
+        embedder.embed_batch.return_value = [[0.1] * 384]
         rag_engine = RAGQueryEngine(storage, embedder, llm, top_k=5)
         
         print(f"✅ Components initialized with {llm.provider}/{llm.model}")
