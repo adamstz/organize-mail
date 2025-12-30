@@ -63,11 +63,17 @@ class ContextBuilder:
         """
         date_str = self._format_date(email.internal_date)
 
+        # Use full body text instead of snippet for better context
+        # Limit to 2000 chars per email to stay within LLM context windows
+        body_text = email.get_body_text()
+        if len(body_text) > 2000:
+            body_text = body_text[:2000] + "... [truncated]"
+
         return f"""Email {idx} (Relevance: {score:.2f}):
 Subject: {email.subject or 'No subject'}
 From: {email.from_ or 'Unknown'}
 Date: {date_str}
-Content: {email.snippet or 'No content available'}
+Content: {body_text or 'No content available'}
 """
 
     def _format_email(self, idx: int, email) -> str:
@@ -82,11 +88,17 @@ Content: {email.snippet or 'No content available'}
         """
         date_str = self._format_date(email.internal_date)
 
+        # Use full body text instead of snippet for better context
+        # Limit to 2000 chars per email to stay within LLM context windows
+        body_text = email.get_body_text()
+        if len(body_text) > 2000:
+            body_text = body_text[:2000] + "... [truncated]"
+
         return f"""Email {idx}:
 Subject: {email.subject or 'No subject'}
 From: {email.from_ or 'Unknown'}
 Date: {date_str}
-Content: {email.snippet or 'No content available'}
+Content: {body_text or 'No content available'}
 """
 
     def _format_date(self, internal_date) -> str:

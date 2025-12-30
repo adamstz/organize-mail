@@ -213,19 +213,31 @@ class LLMProcessor:
         Returns:
             LLM response as string
         """
+        logger.info("[LLM INVOKE] ========== Invoking LLM ==========")
+        logger.info("[LLM INVOKE] Provider: %s, Model: %s", self.provider, self.model)
+        logger.info("[LLM INVOKE] Prompt length: %d chars", len(prompt))
+        logger.debug("[LLM INVOKE] Full prompt:\n%s", prompt)
+        
         if self.llm:
             # Use LangChain
-            logger.debug(f"[LLM INVOKE] Using LangChain with {self.provider}/{self.model}")
+            logger.info(f"[LLM INVOKE] Using LangChain with {self.provider}/{self.model}")
             messages = [HumanMessage(content=prompt)]
             response = self.llm.invoke(messages)
+            logger.info("[LLM INVOKE] ========== LLM Response Received ==========")
+            logger.info("[LLM INVOKE] Response length: %d chars", len(response.content))
+            logger.debug("[LLM INVOKE] Full response:\n%s", response.content)
             return response.content.strip()
         elif self.provider == "ollama":
             # Fallback to direct Ollama API
-            logger.debug(f"[LLM INVOKE] Using direct Ollama API")
-            return self._call_ollama_direct(prompt)
+            logger.info(f"[LLM INVOKE] Using direct Ollama API")
+            result = self._call_ollama_direct(prompt)
+            logger.info("[LLM INVOKE] ========== LLM Response Received ==========")
+            logger.info("[LLM INVOKE] Response length: %d chars", len(result))
+            logger.debug("[LLM INVOKE] Full response:\n%s", result)
+            return result
         elif self.provider == "rules":
             # Rules provider fallback - return a simple response for testing
-            logger.debug(f"[LLM INVOKE] Rules provider - returning fallback response")
+            logger.info(f"[LLM INVOKE] Rules provider - returning fallback response")
             return "Based on the emails provided, I can help answer your question."
         else:
             raise RuntimeError(f"No LLM available for provider '{self.provider}'")

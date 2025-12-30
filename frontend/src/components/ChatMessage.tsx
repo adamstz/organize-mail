@@ -74,7 +74,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         sx={{
           p: 2,
           maxWidth: '85%',
-          bgcolor: 'grey.100',
+          bgcolor: 'background.paper',
+          border: 1,
+          borderColor: 'divider',
         }}
       >
         {message.error ? (

@@ -239,7 +239,7 @@ const EmailItem: React.FC<EmailItemProps> = ({ email, isExpanded, onExpand, onDe
         </Box>
       </ListItem>
       <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-        <Box sx={{ p: 3, backgroundColor: 'grey.50' }}>
+        <Box sx={{ p: 3, backgroundColor: 'action.hover', borderLeft: 3, borderColor: 'primary.main', ml: 2, mr: 2, mb: 2, borderRadius: 1 }}>
           <Box sx={{ mb: 2 }}>
             <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
               Subject:

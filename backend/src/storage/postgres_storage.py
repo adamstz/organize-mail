@@ -246,6 +246,60 @@ class PostgresStorage(StorageBackend):
             """
         )
 
+        # Full-text search support (for hybrid search)
+        # Add tsvector column for full-text search if it doesn't exist
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'messages' AND column_name = 'search_vector'
+                ) THEN
+                    ALTER TABLE messages ADD COLUMN search_vector tsvector;
+                END IF;
+            END $$;
+            """
+        )
+
+        # Create GIN index on tsvector for fast full-text search
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_messages_search_vector_gin
+            ON messages USING GIN (search_vector)
+            """
+        )
+
+        # Create trigger to auto-update tsvector on INSERT/UPDATE
+        cur.execute(
+            """
+            CREATE OR REPLACE FUNCTION messages_search_vector_trigger() RETURNS trigger AS $$
+            BEGIN
+                NEW.search_vector :=
+                    setweight(to_tsvector('english', coalesce(NEW.subject, '')), 'A') ||
+                    setweight(to_tsvector('english', coalesce(NEW.snippet, '')), 'B') ||
+                    setweight(to_tsvector('english', coalesce(NEW.from_addr, '')), 'C');
+                RETURN NEW;
+            END
+            $$ LANGUAGE plpgsql;
+            """
+        )
+
+        cur.execute(
+            """
+            DROP TRIGGER IF EXISTS messages_search_vector_update ON messages;
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TRIGGER messages_search_vector_update
+                BEFORE INSERT OR UPDATE ON messages
+                FOR EACH ROW
+                EXECUTE FUNCTION messages_search_vector_trigger();
+            """
+        )
+
         # Index for looking up chunks by message_id
         cur.execute(
             """
@@ -1569,3 +1623,149 @@ class PostgresStorage(StorageBackend):
         conn.commit()
         cur.close()
         conn.close()
+
+    def keyword_search(
+        self,
+        query: str,
+        limit: int = 50,
+        threshold: float = 0.0
+    ) -> List[tuple[MailMessage, float]]:
+        """Search messages using PostgreSQL full-text search (BM25-like ranking).
+
+        Args:
+            query: Search query string
+            limit: Maximum number of results
+            threshold: Minimum rank threshold (0.0 = no threshold)
+
+        Returns:
+            List of (message, rank_score) tuples, ordered by relevance
+        """
+        conn = self.connect()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Use ts_rank_cd for BM25-like ranking with coverage density
+        # Normalization flag 1 = normalize by document length
+        query_sql = """
+            SELECT
+                m.*,
+                c.labels as class_labels,
+                c.priority as class_priority,
+                c.summary as class_summary,
+                ts_rank_cd(m.search_vector, query, 1) as rank
+            FROM messages m
+            LEFT JOIN classifications c ON m.latest_classification_id = c.id,
+            plainto_tsquery('english', %s) query
+            WHERE m.search_vector @@ query
+                AND ts_rank_cd(m.search_vector, query, 1) >= %s
+            ORDER BY rank DESC
+            LIMIT %s
+        """
+
+        cur.execute(query_sql, (query, threshold, limit))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        results = []
+        for r in rows:
+            message = MailMessage(
+                id=r['id'],
+                thread_id=r['thread_id'],
+                from_=r['from_addr'],
+                to=r['to_addr'],
+                subject=r['subject'],
+                snippet=r['snippet'],
+                labels=r['labels'],
+                internal_date=r['internal_date'],
+                payload=r['payload'],
+                raw=r['raw'],
+                headers=r['headers'] or {},
+                classification_labels=r['class_labels'],
+                priority=r['class_priority'],
+                summary=r['class_summary'],
+                has_attachments=r['has_attachments'] or False,
+            )
+            rank = float(r['rank'])
+            results.append((message, rank))
+
+        return results
+
+    def hybrid_search(
+        self,
+        query_embedding: List[float],
+        query_text: str,
+        limit: int = 5,
+        vector_weight: float = 0.5,
+        keyword_weight: float = 0.5,
+        retrieval_k: int = 50
+    ) -> List[tuple[MailMessage, float]]:
+        """Hybrid search combining vector similarity and keyword search using RRF.
+
+        Uses Reciprocal Rank Fusion (RRF) to combine ranked results from:
+        - Vector similarity search (semantic)
+        - Full-text keyword search (lexical)
+
+        Args:
+            query_embedding: Vector embedding of the query
+            query_text: Original query text for keyword search
+            limit: Final number of results to return
+            vector_weight: Weight for vector search scores (0.0-1.0)
+            keyword_weight: Weight for keyword search scores (0.0-1.0)
+            retrieval_k: Number of results to retrieve from each method before fusion
+
+        Returns:
+            List of (message, fused_score) tuples, ordered by fused relevance
+        """
+        # Retrieve candidates from both methods
+        vector_results = self.similarity_search(
+            query_embedding=query_embedding,
+            limit=retrieval_k,
+            threshold=0.0
+        )
+
+        keyword_results = self.keyword_search(
+            query=query_text,
+            limit=retrieval_k,
+            threshold=0.0
+        )
+
+        # Reciprocal Rank Fusion (RRF)
+        # Formula: score = sum(1 / (k + rank)) for each result list
+        # k is a constant (typically 60) to prevent division by very small numbers
+        rrf_k = 60
+        fused_scores = {}
+
+        # Process vector search results
+        for rank, (message, similarity) in enumerate(vector_results, start=1):
+            rrf_score = vector_weight / (rrf_k + rank)
+            fused_scores[message.id] = {
+                'message': message,
+                'score': rrf_score,
+                'vector_rank': rank,
+                'vector_sim': similarity
+            }
+
+        # Process keyword search results
+        for rank, (message, keyword_rank) in enumerate(keyword_results, start=1):
+            rrf_score = keyword_weight / (rrf_k + rank)
+            if message.id in fused_scores:
+                fused_scores[message.id]['score'] += rrf_score
+                fused_scores[message.id]['keyword_rank'] = rank
+                fused_scores[message.id]['keyword_score'] = keyword_rank
+            else:
+                fused_scores[message.id] = {
+                    'message': message,
+                    'score': rrf_score,
+                    'keyword_rank': rank,
+                    'keyword_score': keyword_rank
+                }
+
+        # Sort by fused score and return top-k
+        sorted_results = sorted(
+            fused_scores.values(),
+            key=lambda x: x['score'],
+            reverse=True
+        )[:limit]
+
+        # Return as (message, score) tuples
+        return [(item['message'], item['score']) for item in sorted_results]

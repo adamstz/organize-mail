@@ -20,7 +20,7 @@ langchain-community>=0.0.20
 langchain-ollama>=0.1.0  # New Ollama integration (replaces deprecated ChatOllama)
 
 # RAG and embeddings
-sentence-transformers>=2.2.0  # Local embedding models
+sentence-transformers>=2.2.0  # Local embedding models and cross-encoders for reranking
 pgvector>=0.2.0  # PostgreSQL vector extension Python client
 
 # Email security and sanitization

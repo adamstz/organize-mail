@@ -260,6 +260,59 @@ class TestSenderHandler:
         assert result['confidence'] == 'none' or "couldn't find" in result['answer'].lower()
         assert result['sources'] == []
 
+    def test_extract_number_from_query(self, handler_dependencies):
+        """Should extract numbers from queries like 'last 10 emails'."""
+        handler = SenderHandler(
+            storage=handler_dependencies['storage'],
+            llm=handler_dependencies['llm'],
+            context_builder=handler_dependencies['context_builder'],
+        )
+        
+        # Test various number extraction patterns
+        assert handler._extract_number_from_query("what are my last 10 ubereats mail") == 10
+        assert handler._extract_number_from_query("show me 20 amazon emails") == 20
+        assert handler._extract_number_from_query("get 5 messages from linkedin") == 5
+        assert handler._extract_number_from_query("latest 15 github emails") == 15
+        assert handler._extract_number_from_query("recent 3 notifications") == 3
+        
+        # No number specified
+        assert handler._extract_number_from_query("show me uber emails") is None
+        
+        # Out of range (too large)
+        assert handler._extract_number_from_query("last 200 emails") is None
+        
+        # Zero or negative
+        assert handler._extract_number_from_query("last 0 emails") is None
+
+    def test_handle_respects_extracted_limit(self, handler_dependencies):
+        """Should use extracted number as limit when specified in query."""
+        storage = handler_dependencies['storage']
+        handler = SenderHandler(
+            storage=storage,
+            llm=handler_dependencies['llm'],
+            context_builder=handler_dependencies['context_builder'],
+        )
+        
+        # Mock the search to track what limit was requested
+        original_search = storage.search_by_sender
+        called_with_limit = None
+        
+        def track_limit(sender, limit=5):
+            nonlocal called_with_limit
+            called_with_limit = limit
+            return original_search(sender, limit=limit)
+        
+        storage.search_by_sender = track_limit
+        
+        # Query with "last 10"
+        handler.handle("what are my last 10 ubereats mail")
+        
+        # Should have extracted 10 and used it as limit
+        assert called_with_limit == 10
+        
+        # Restore original
+        storage.search_by_sender = original_search
+
 
 class TestAttachmentHandler:
     """Tests for AttachmentHandler."""
@@ -454,11 +507,11 @@ class TestSemanticHandler:
         assert 'not available' in result['answer'].lower()
 
     def test_handle_with_mock_embedder(self, handler_dependencies):
-        """Should use embedder and storage for semantic search."""
+        """Should use embedder and storage for hybrid search."""
         mock_embedder = handler_dependencies['embedder']
         storage = handler_dependencies['storage']
         
-        # Mock similarity_search to return some emails
+        # Mock hybrid_search to return some emails
         email = MailMessage(
             id="test1",
             from_="test@example.com",
@@ -468,9 +521,9 @@ class TestSemanticHandler:
         )
         storage.save_message(email)
         
-        # Add similarity_search method to mock storage
+        # Add hybrid_search method to mock storage
         mock_results = [(email, 0.85)]
-        storage.similarity_search = Mock(return_value=mock_results)
+        storage.hybrid_search = Mock(return_value=mock_results)
         
         handler = SemanticHandler(
             storage=storage,
@@ -484,16 +537,16 @@ class TestSemanticHandler:
         assert result['query_type'] == 'semantic'
         # Embedder should have been called
         mock_embedder.embed_text.assert_called_once()
-        # Storage similarity_search should have been called
-        storage.similarity_search.assert_called_once()
+        # Storage hybrid_search should have been called
+        storage.hybrid_search.assert_called_once()
 
     def test_handle_no_results(self, handler_dependencies):
-        """Should handle when semantic search returns no results."""
+        """Should handle when hybrid search returns no results."""
         mock_embedder = handler_dependencies['embedder']
         storage = handler_dependencies['storage']
         
         # Mock empty results
-        storage.similarity_search = Mock(return_value=[])
+        storage.hybrid_search = Mock(return_value=[])
         
         handler = SemanticHandler(
             storage=storage,
@@ -523,7 +576,7 @@ class TestSemanticHandler:
         storage.save_message(email)
         
         # High similarity score
-        storage.similarity_search = Mock(return_value=[(email, 0.9)])
+        storage.hybrid_search = Mock(return_value=[(email, 0.9)])
         
         handler = SemanticHandler(
             storage=storage,
@@ -553,7 +606,7 @@ class TestSemanticHandler:
         storage.save_message(email)
         
         # Medium similarity score
-        storage.similarity_search = Mock(return_value=[(email, 0.7)])
+        storage.hybrid_search = Mock(return_value=[(email, 0.7)])
         
         handler = SemanticHandler(
             storage=storage,
@@ -582,7 +635,7 @@ class TestSemanticHandler:
         storage.save_message(email)
         
         # Low similarity score
-        storage.similarity_search = Mock(return_value=[(email, 0.55)])
+        storage.hybrid_search = Mock(return_value=[(email, 0.55)])
         
         handler = SemanticHandler(
             storage=storage,
@@ -613,6 +666,81 @@ class TestSemanticHandler:
         assert result['query_type'] == 'semantic'
         assert result['confidence'] == 'none'
         assert 'error' in result['answer'].lower()
+
+    def test_fallback_to_vector_search(self, handler_dependencies):
+        """Should fallback to similarity_search when hybrid_search not available."""
+        mock_embedder = handler_dependencies['embedder']
+        storage = handler_dependencies['storage']
+        
+        email = MailMessage(
+            id="test_fallback",
+            from_="test@example.com",
+            subject="Fallback Test",
+            snippet="Testing fallback to vector search",
+            internal_date=1733050800000,
+        )
+        storage.save_message(email)
+        
+        # Don't add hybrid_search method - simulate old storage backend
+        mock_results = [(email, 0.8)]
+        storage.similarity_search = Mock(return_value=mock_results)
+        
+        handler = SemanticHandler(
+            storage=storage,
+            llm=handler_dependencies['llm'],
+            context_builder=handler_dependencies['context_builder'],
+            embedder=mock_embedder,
+        )
+        
+        result = handler.handle("test query")
+        
+        assert result['query_type'] == 'semantic'
+        # Should have called similarity_search as fallback
+        storage.similarity_search.assert_called_once()
+        # Should NOT have hybrid_search attribute called
+        assert not hasattr(storage, 'hybrid_search') or not storage.hybrid_search.called
+
+    def test_hybrid_search_with_reranking(self, handler_dependencies):
+        """Should use hybrid_search when available."""
+        mock_embedder = handler_dependencies['embedder']
+        storage = handler_dependencies['storage']
+        
+        emails = [
+            MailMessage(
+                id=f"test{i}",
+                from_="test@example.com",
+                subject=f"Email {i}",
+                snippet=f"Content {i}",
+                internal_date=1733050800000,
+            )
+            for i in range(10)
+        ]
+        for email in emails:
+            storage.save_message(email)
+        
+        # Mock hybrid_search to return multiple results
+        mock_results = [(email, 0.9 - i*0.05) for i, email in enumerate(emails[:10])]
+        storage.hybrid_search = Mock(return_value=mock_results)
+        
+        handler = SemanticHandler(
+            storage=storage,
+            llm=handler_dependencies['llm'],
+            context_builder=handler_dependencies['context_builder'],
+            embedder=mock_embedder,
+        )
+        
+        result = handler.handle("test query", limit=5)
+        
+        assert result['query_type'] == 'semantic'
+        # Should have called hybrid_search
+        storage.hybrid_search.assert_called_once()
+        # Verify hybrid_search was called with correct parameters
+        call_args = storage.hybrid_search.call_args
+        assert 'query_embedding' in call_args[1]
+        assert 'query_text' in call_args[1]
+        assert call_args[1]['limit'] == 5
+        assert 'vector_weight' in call_args[1]
+        assert 'keyword_weight' in call_args[1]
 
 
 class TestBaseHandlerMethods:

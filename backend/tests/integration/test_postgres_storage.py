@@ -70,9 +70,60 @@ def storage(db_url):
     storage = PostgresStorage(db_url=db_url)
     storage.init_db()
     
-    # Clean up existing data - set FK to null first to avoid constraint violations
+    # Run migration to add search_vector column if not exists
     conn = storage.connect()
     cur = conn.cursor()
+    try:
+        # Check if search_vector column exists
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name='messages' AND column_name='search_vector'
+        """)
+        if not cur.fetchone():
+            # Run the migration
+            print("\n[TEST SETUP] Running full-text search migration on test database...")
+            migration_sql = """
+                -- Add search_vector column
+                ALTER TABLE messages ADD COLUMN IF NOT EXISTS search_vector tsvector;
+                
+                -- Create GIN index
+                CREATE INDEX IF NOT EXISTS idx_messages_search_vector 
+                ON messages USING GIN (search_vector);
+                
+                -- Create trigger function
+                CREATE OR REPLACE FUNCTION update_search_vector()
+                RETURNS TRIGGER AS $$
+                BEGIN
+                    NEW.search_vector := 
+                        setweight(to_tsvector('english', COALESCE(NEW.subject, '')), 'A') ||
+                        setweight(to_tsvector('english', COALESCE(NEW.snippet, '')), 'B') ||
+                        setweight(to_tsvector('english', COALESCE(NEW.from_addr, '')), 'C');
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+                
+                -- Create trigger
+                DROP TRIGGER IF EXISTS messages_search_vector_update ON messages;
+                CREATE TRIGGER messages_search_vector_update
+                BEFORE INSERT OR UPDATE ON messages
+                FOR EACH ROW
+                EXECUTE FUNCTION update_search_vector();
+                
+                -- Backfill existing data
+                UPDATE messages 
+                SET search_vector = 
+                    setweight(to_tsvector('english', COALESCE(subject, '')), 'A') ||
+                    setweight(to_tsvector('english', COALESCE(snippet, '')), 'B') ||
+                    setweight(to_tsvector('english', COALESCE(from_addr, '')), 'C');
+            """
+            cur.execute(migration_sql)
+            conn.commit()
+            print("[TEST SETUP] Migration completed\n")
+    except Exception as e:
+        print(f"[TEST SETUP] Migration check/execution failed: {e}")
+        conn.rollback()
+    
+    # Clean up existing data - set FK to null first to avoid constraint violations
     cur.execute("UPDATE messages SET latest_classification_id = NULL")
     cur.execute("DELETE FROM classifications")
     cur.execute("DELETE FROM messages")
@@ -1155,3 +1206,257 @@ class TestPostgresStorageFilteringOptimization:
         assert elapsed < 1.0
         assert total > 0  # Should find some matches
         assert len(messages) <= 50  # Respects limit
+
+
+class TestPostgresKeywordSearch:
+    """Tests for PostgreSQL full-text search using tsvector."""
+    
+    def test_keyword_search_basic(self, storage):
+        """Basic keyword search should find messages."""
+        # Create test messages
+        msg1 = MailMessage(
+            id="ks1",
+            thread_id="t1",
+            from_="invoice@acme.com",
+            subject="Invoice #1234 for Services",
+            snippet="Please find attached the invoice for consulting services rendered.",
+            internal_date=1733050800000,
+        )
+        msg2 = MailMessage(
+            id="ks2",
+            thread_id="t2",
+            from_="billing@company.com",
+            subject="Payment Reminder",
+            snippet="Your payment for invoice INV-5678 is due.",
+            internal_date=1733050900000,
+        )
+        msg3 = MailMessage(
+            id="ks3",
+            thread_id="t3",
+            from_="team@company.com",
+            subject="Meeting Notes",
+            snippet="Discussion about quarterly budget and team goals.",
+            internal_date=1733051000000,
+        )
+        
+        storage.save_message(msg1)
+        storage.save_message(msg2)
+        storage.save_message(msg3)
+        
+        # Search for "invoice"
+        results = storage.keyword_search("invoice", limit=10)
+        
+        # Should find both invoice messages
+        assert len(results) >= 2
+        result_ids = [msg.id for msg, _ in results]
+        assert "ks1" in result_ids
+        assert "ks2" in result_ids
+        assert "ks3" not in result_ids  # Meeting notes shouldn't match
+    
+    def test_keyword_search_stemming(self, storage):
+        """Should handle word stemming (invoice -> invoices -> invoicing)."""
+        msg = MailMessage(
+            id="stem1",
+            thread_id="t1",
+            from_="test@example.com",
+            subject="Multiple invoices need processing",
+            snippet="The invoicing system is generating invoices correctly.",
+            internal_date=1733050800000,
+        )
+        storage.save_message(msg)
+        
+        # Search with different word forms
+        results_invoice = storage.keyword_search("invoice", limit=10)
+        results_invoices = storage.keyword_search("invoices", limit=10)
+        results_invoicing = storage.keyword_search("invoicing", limit=10)
+        
+        # All should find the same message due to stemming
+        assert len(results_invoice) > 0
+        assert len(results_invoices) > 0
+        assert len(results_invoicing) > 0
+        
+        # Should all return the same message
+        assert results_invoice[0][0].id == "stem1"
+        assert results_invoices[0][0].id == "stem1"
+        assert results_invoicing[0][0].id == "stem1"
+    
+    def test_keyword_search_ranking(self, storage):
+        """Should rank results by relevance (subject > snippet > sender)."""
+        # Message with term in subject (weight A - highest)
+        msg1 = MailMessage(
+            id="rank1",
+            thread_id="t1",
+            from_="test@example.com",
+            subject="Invoice for services",
+            snippet="Payment details and instructions.",
+            internal_date=1733050800000,
+        )
+        # Message with term in snippet (weight B - medium)
+        msg2 = MailMessage(
+            id="rank2",
+            thread_id="t2",
+            from_="test@example.com",
+            subject="Payment details",
+            snippet="The invoice for last month is attached.",
+            internal_date=1733050900000,
+        )
+        # Message with term in sender (weight C - lowest)
+        msg3 = MailMessage(
+            id="rank3",
+            thread_id="t3",
+            from_="invoice@company.com",
+            subject="Monthly update",
+            snippet="Team meeting notes and action items.",
+            internal_date=1733051000000,
+        )
+        
+        storage.save_message(msg1)
+        storage.save_message(msg2)
+        storage.save_message(msg3)
+        
+        results = storage.keyword_search("invoice", limit=10)
+        
+        # Should find messages with "invoice" in subject or snippet
+        # Note: msg3 won't match because "invoice@company.com" is tokenized as "invoice" + "company" + "com"
+        # and the email address part isn't weighted for search
+        assert len(results) >= 2
+        
+        # Check ranking order - subject match should rank highest
+        result_ids = [msg.id for msg, _ in results]
+        ranks = {msg.id: score for msg, score in results}
+        
+        # msg1 and msg2 should be found
+        assert "rank1" in result_ids
+        assert "rank2" in result_ids
+        
+        # Subject (A) should rank higher than snippet (B)
+        assert ranks["rank1"] > ranks["rank2"]
+    
+    def test_keyword_search_threshold(self, storage):
+        """Should filter results by minimum score threshold."""
+        msg1 = MailMessage(
+            id="thresh1",
+            thread_id="t1",
+            from_="test@example.com",
+            subject="Invoice Payment Required",
+            snippet="Important invoice for services.",
+            internal_date=1733050800000,
+        )
+        msg2 = MailMessage(
+            id="thresh2",
+            thread_id="t2",
+            from_="invoice@test.com",
+            subject="Team update",
+            snippet="General update email.",
+            internal_date=1733050900000,
+        )
+        
+        storage.save_message(msg1)
+        storage.save_message(msg2)
+        
+        # Search with low threshold - msg1 has "invoice" in subject and snippet
+        results_low = storage.keyword_search("invoice", limit=10, threshold=0.0)
+        # Should find at least msg1 (has invoice in subject AND snippet)
+        assert len(results_low) >= 1
+        assert any(msg.id == "thresh1" for msg, _ in results_low)
+        
+        # Search with high threshold - should filter weak matches
+        results_high = storage.keyword_search("invoice", limit=10, threshold=0.5)
+        # High-scoring match should still be present
+        assert len(results_high) >= 1
+        assert any(msg.id == "thresh1" for msg, _ in results_high)
+    
+    def test_keyword_search_limit(self, storage):
+        """Should respect limit parameter."""
+        # Create 10 messages
+        for i in range(10):
+            msg = MailMessage(
+                id=f"limit{i}",
+                thread_id=f"t{i}",
+                from_="test@example.com",
+                subject=f"Invoice #{i}",
+                snippet=f"Invoice details for order {i}.",
+                internal_date=1733050800000 + i*1000,
+            )
+            storage.save_message(msg)
+        
+        # Search with limit=3
+        results = storage.keyword_search("invoice", limit=3)
+        
+        assert len(results) == 3
+    
+    def test_keyword_search_boolean_and(self, storage):
+        """Should support boolean AND queries."""
+        msg1 = MailMessage(
+            id="bool1",
+            thread_id="t1",
+            from_="test@example.com",
+            subject="Invoice and Payment",
+            snippet="Invoice for payment processing.",
+            internal_date=1733050800000,
+        )
+        msg2 = MailMessage(
+            id="bool2",
+            thread_id="t2",
+            from_="test@example.com",
+            subject="Invoice details",
+            snippet="Invoice number and reference.",
+            internal_date=1733050900000,
+        )
+        msg3 = MailMessage(
+            id="bool3",
+            thread_id="t3",
+            from_="test@example.com",
+            subject="Payment reminder",
+            snippet="Payment due date approaching.",
+            internal_date=1733051000000,
+        )
+        
+        storage.save_message(msg1)
+        storage.save_message(msg2)
+        storage.save_message(msg3)
+        
+        # Search for documents containing BOTH "invoice" AND "payment"
+        # Note: keyword_search may need to be enhanced to support this,
+        # or we can test via plainto_tsquery which handles spaces as AND
+        results = storage.keyword_search("invoice payment", limit=10)
+        
+        # Should find msg1 (has both terms)
+        result_ids = [msg.id for msg, _ in results]
+        assert "bool1" in result_ids
+    
+    def test_keyword_search_empty_query(self, storage):
+        """Should handle empty query gracefully."""
+        msg = MailMessage(
+            id="empty1",
+            thread_id="t1",
+            from_="test@example.com",
+            subject="Test",
+            snippet="Test content.",
+            internal_date=1733050800000,
+        )
+        storage.save_message(msg)
+        
+        # Empty query should return empty results
+        results = storage.keyword_search("", limit=10)
+        assert len(results) == 0
+
+
+class TestPostgresHybridSearch:
+    """Tests for hybrid search combining vector and keyword search."""
+    
+    def test_hybrid_search_combines_methods(self, storage):
+        """Should combine vector and keyword search results."""
+        # This test requires embeddings, so we'll check the method exists
+        # and has correct signature
+        assert hasattr(storage, 'hybrid_search')
+        
+        import inspect
+        sig = inspect.signature(storage.hybrid_search)
+        params = list(sig.parameters.keys())
+        
+        assert 'query_embedding' in params
+        assert 'query_text' in params
+        assert 'vector_weight' in params
+        assert 'keyword_weight' in params
+        assert 'retrieval_k' in params

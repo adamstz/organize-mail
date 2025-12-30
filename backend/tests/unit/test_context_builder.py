@@ -27,12 +27,17 @@ class TestBuildContext:
 
     def test_build_context_single_email(self, context_builder):
         """Should build context from a single email with score."""
+        import base64
+        from tests.unit.fixtures_payloads import make_simple_text_payload
+        
+        full_body = "This is the full email content with much more detail than the snippet."
         email = MailMessage(
             id="test1",
             from_="sender@example.com",
             subject="Test Subject",
             snippet="This is the email content.",
             internal_date=1733050800000,  # Dec 1, 2025, 10:00 AM UTC
+            payload=make_simple_text_payload(full_body)
         )
         
         similar_emails = [(email, 0.95)]
@@ -42,7 +47,8 @@ class TestBuildContext:
         assert "Relevance: 0.95" in context
         assert "Test Subject" in context
         assert "sender@example.com" in context
-        assert "This is the email content." in context
+        # Should use full body, not snippet
+        assert full_body in context
 
     def test_build_context_multiple_emails(self, context_builder):
         """Should build context from multiple emails with scores."""

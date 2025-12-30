@@ -61,35 +61,82 @@ Do not include explanations or markdown. Only output valid JSON. Do not invent l
 # RAG QUERY CLASSIFICATION PROMPTS
 # =============================================================================
 
-QUERY_CLASSIFICATION_PROMPT = """Classify this email query in ONE word:
+QUERY_CLASSIFICATION_PROMPT = """Classify this email query by INTENT. Return ONLY the type name, nothing else.
 
-"{question}"
+Query: "{question}"
+{chat_context}
 
-Query types:
-- conversation: greetings, thanks, help requests (hi, hello, thank you, what can you do)
-- aggregation: statistics, counting, top senders (how many total, who emails most, count of)
-- search-by-sender: find emails from specific sender/company
-  (all from X, emails from Y, show me X's emails, last 5 uber mail, recent amazon emails)
-- search-by-attachment: find emails with attachments (with attachments, has files)
-- classification: label-based queries (job rejections, spam emails, receipts)
-- filtered-temporal: time + topic/keyword NOT sender
-  (recent emails about project, latest regarding meeting)
-- temporal: pure time-based (recent emails, last 5 emails, newest messages)
-  WITHOUT any specific company/sender/topic
-- semantic: content search without time constraint (about project alpha, regarding meeting)
+NOTE: Pronouns like "those", "them", "of these" reference previous context - focus on what the user wants to DO, not the pronouns.
 
-Rules:
-1. If mentions a COMPANY/SENDER name (uber, amazon, google, netflix, paypal, etc.) → search-by-sender
-   Examples: "last 5 ubereats mail", "recent uber emails", "show me netflix messages" → search-by-sender
-2. If "how many" with specific topic/sender → aggregation
-3. If time + content words (about/regarding) but NO company name → filtered-temporal
-4. If time word (last/recent) but NO company/sender/topic → temporal
-5. If greeting/thanks → conversation
-6. Otherwise → semantic
+Types and Examples:
 
-CRITICAL: Company/sender names (uber, amazon, netflix, etc.) → search-by-sender even with time words
+search-by-sender (find emails from specific company/person):
+- "last 10 ubereats mail"
+- "show me amazon emails"
+- "emails from uber"
+- "recent doordash orders"
+- "netflix messages"
+- "mail from john@example.com"
+- "from those senders, show me latest" (intent: get from sender)
 
-Answer with ONE word only:"""
+conversation (greetings, help, thanks):
+- "hello"
+- "hi there"
+- "thank you"
+- "thanks"
+- "what can you do"
+- "help me"
+
+aggregation (count, statistics, rankings):
+- "how many emails total"
+- "who emails me most"
+- "count of unread messages"
+- "top 5 senders"
+- "how many from amazon"
+- "of those, how many are there" (intent: count)
+- "from them, who sent most" (intent: rank senders)
+
+temporal (get recent/latest without specific filter):
+- "last 10 emails"
+- "recent messages"
+- "newest emails"
+- "show me latest 5"
+- "oldest messages"
+- "from those, show me 5" (intent: get some from a set)
+
+filtered-temporal (recent + topic/keyword, NOT company):
+- "recent emails about the project"
+- "latest regarding the meeting"
+- "newest about vacation"
+
+classification (filter by label/category like spam, receipts, jobs):
+- "show me spam"
+- "job rejections"
+- "receipt emails"
+- "all promotions"
+- "of those, which are spam" (intent: filter by spam label)
+- "from them, show me receipts" (intent: filter by receipt label)
+- "which are interviews" (intent: filter by interview label)
+
+search-by-attachment (find emails with files):
+- "emails with attachments"
+- "messages with files"
+- "which have attachments"
+- "of those, which have files" (intent: filter by attachment)
+
+semantic (search by content/topic, NOT label):
+- "emails about the alpha project"
+- "regarding the client proposal"
+- "containing budget information"
+- "of those, which mention the deadline" (intent: search content)
+
+RULES:
+1. Company/brand names (uber, ubereats, amazon, netflix, etc.) → search-by-sender
+2. Labels (spam, receipts, jobs, promotions) → classification
+3. Counting/ranking → aggregation
+4. Pronouns ("those", "them") don't change the intent type
+
+Classification:"""
 
 
 # =============================================================================

@@ -161,8 +161,9 @@ const ChatInterface: React.FC = () => {
 
   const handleDeleteFromMenu = async () => {
     if (sessionMenuAnchor) {
-      await deleteSession(sessionMenuAnchor.sessionId);
+      const sessionIdToDelete = sessionMenuAnchor.sessionId;
       handleSessionMenuClose();
+      await deleteSession(sessionIdToDelete);
     }
   };
 
@@ -329,7 +330,9 @@ const ChatInterface: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            bgcolor: 'background.paper',
+            bgcolor: 'background.default',
+            borderBottom: 1,
+            borderColor: 'divider',
           }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -401,7 +404,9 @@ const ChatInterface: React.FC = () => {
                     elevation={1}
                     sx={{
                       p: 2,
-                      bgcolor: 'grey.100',
+                      bgcolor: 'background.paper',
+                      border: 1,
+                      borderColor: 'divider',
                       display: 'flex',
                       alignItems: 'center',
                       gap: 1,
@@ -445,9 +450,11 @@ const ChatInterface: React.FC = () => {
               color="primary"
               onClick={handleSend}
               disabled={!inputValue.trim() || isLoading}
+              size="small"
               sx={{
                 bgcolor: 'primary.main',
                 color: 'white',
+                alignSelf: 'flex-end',
                 '&:hover': {
                   bgcolor: 'primary.dark',
                 },
@@ -456,7 +463,7 @@ const ChatInterface: React.FC = () => {
                 },
               }}
             >
-              <SendIcon />
+              <SendIcon fontSize="small" />
             </IconButton>
           </Box>
           <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
@@ -475,11 +482,17 @@ const ChatInterface: React.FC = () => {
             borderColor: 'divider',
             display: 'flex',
             flexDirection: 'column',
-            bgcolor: 'background.paper',
+            bgcolor: 'background.default',
           }}
         >
           {/* New Chat Button */}
-          <Box sx={{ p: 2, minHeight: 68.5 }}>
+          <Box sx={{ 
+            p: 2, 
+            minHeight: 68.5,
+            bgcolor: 'background.default',
+            borderBottom: 1,
+            borderColor: 'divider',
+          }}>
             <Button
               fullWidth
               variant="contained"
