@@ -109,6 +109,42 @@ class TestDetectQueryTypeSender:
         # LLM classification can vary
         assert result in ("search-by-sender", "semantic", "aggregation")
 
+    def test_detect_ubereats_query(self, query_classifier):
+        """Should classify 'ubereats mail' as search-by-sender (original bug report)."""
+        result = query_classifier.detect_query_type("what are my last 10 ubereats mail")
+        # This was the original failing query - should now be search-by-sender
+        assert result in ("search-by-sender", "filtered-temporal")
+
+    def test_detect_uber_variations(self, query_classifier):
+        """Should classify various uber/ubereats name forms as search-by-sender."""
+        test_cases = [
+            "show me uber emails",
+            "last 5 ubereats",
+            "uber eats messages",
+            "recent uber mail"
+        ]
+        for query in test_cases:
+            result = query_classifier.detect_query_type(query)
+            assert result in ("search-by-sender", "filtered-temporal", "semantic"), \
+                f"Failed for: {query} (got {result})"
+
+    def test_detect_company_name_variations(self, query_classifier):
+        """Should classify concatenated company names as search-by-sender."""
+        test_cases = [
+            # Clear sender queries
+            ("doordash emails", ["search-by-sender", "filtered-temporal", "semantic"]),
+            ("show me amazon orders", ["search-by-sender", "classification", "filtered-temporal", "semantic"]),
+            ("netflix messages", ["search-by-sender", "filtered-temporal", "semantic"]),
+            ("github emails", ["search-by-sender", "filtered-temporal", "semantic"]),
+            # Ambiguous: "notifications" could be classification intent
+            ("linkedin notifications", ["search-by-sender", "classification", "filtered-temporal", "semantic"]),
+        ]
+        for query, valid_types in test_cases:
+            result = query_classifier.detect_query_type(query)
+            # Intent-based classification should recognize company names
+            assert result in valid_types, \
+                f"Failed for: {query} (got {result}, expected one of {valid_types})"
+
 
 class TestDetectQueryTypeAttachment:
     """Tests for search-by-attachment query detection."""
@@ -347,6 +383,34 @@ class TestEdgeCases:
         """Should handle queries with special characters."""
         result = query_classifier.detect_query_type("emails from test@example.com")
         assert result in query_classifier.VALID_TYPES
+
+
+class TestIntentBasedClassification:
+    """Test intent-based classification (pronouns should not change query type)."""
+
+    def test_contextual_aggregation_intent(self, query_classifier):
+        """Contextual query 'of those, how many' should be aggregation (intent: count)."""
+        result = query_classifier.detect_query_type("of those, how many are from work")
+        # Intent is COUNT/aggregation, not semantic search
+        assert result in ["aggregation", "semantic"]
+
+    def test_contextual_classification_intent(self, query_classifier):
+        """Contextual query 'of those, which are spam' should be classification (intent: categorize)."""
+        result = query_classifier.detect_query_type("of those, which are spam")
+        # Intent is CATEGORIZE/classification, not semantic
+        assert result in ["classification", "semantic"]
+
+    def test_contextual_classification_receipts(self, query_classifier):
+        """Contextual query 'from them, show receipts' should be classification (intent: filter by type)."""
+        result = query_classifier.detect_query_type("from them, show me receipts")
+        # Intent is FILTER/classification, not search-by-sender
+        assert result in ["classification", "semantic"]
+
+    def test_contextual_without_pronoun_classification(self, query_classifier):
+        """Query 'which are interviews' should be classification regardless of context."""
+        result = query_classifier.detect_query_type("which are interviews")
+        # Intent is CATEGORIZE/classification
+        assert result in ["classification", "semantic"]
 
 
 class TestQueryClassifierIntegration:

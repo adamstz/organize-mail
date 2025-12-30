@@ -124,7 +124,9 @@ class RAGQueryEngine:
             logger.info(f"[RAG QUERY] Using {len(chat_history)} previous messages for context")
 
         # Detect query type
+        logger.info("[RAG QUERY] ========== Starting Query Classification ==========")
         query_type = self.classifier.detect_query_type(question, chat_history)
+        logger.info("[RAG QUERY] ========== Classification Complete ==========")
         logger.info(f"[RAG QUERY] Detected query type: {query_type}")
 
         # Get the appropriate handler
@@ -140,7 +142,9 @@ class RAGQueryEngine:
             }
 
         # Route to handler
-        logger.info(f"[RAG QUERY] Routing to {handler.__class__.__name__}")
+        logger.info("[RAG QUERY] ========== Routing to Handler ==========")
+        logger.info(f"[RAG QUERY] Handler: {handler.__class__.__name__}")
+        logger.info(f"[RAG QUERY] Parameters: limit={k}, threshold={similarity_threshold}")
 
         # Handle special cases for handlers with extra parameters
         if query_type == 'semantic':

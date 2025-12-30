@@ -112,43 +112,43 @@ const LogViewer: React.FC<LogViewerProps> = ({ onClose }) => {
     : logs;
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#1e1e1e' }}>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
       {/* Header */}
       <Box sx={{ 
         p: 1.5, 
         borderBottom: 1, 
         borderColor: 'divider',
-        bgcolor: '#2d2d2d',
+        bgcolor: 'background.paper',
         display: 'flex',
         alignItems: 'center',
         gap: 1
       }}>
-        <Typography variant="h6" sx={{ flexGrow: 1, color: '#fff', fontSize: '1rem' }}>
+        <Typography variant="h6" sx={{ flexGrow: 1, color: 'text.primary', fontSize: '1rem' }}>
           System Logs
         </Typography>
         <Chip 
           label={`${filteredLogs.length} entries`} 
           size="small" 
-          sx={{ bgcolor: '#424242', color: '#fff' }}
+          sx={{ bgcolor: 'action.selected', color: 'text.primary' }}
         />
         <Tooltip title={isPaused ? "Resume" : "Pause"}>
-          <IconButton size="small" onClick={handleTogglePause} sx={{ color: '#fff' }}>
+          <IconButton size="small" onClick={handleTogglePause} sx={{ color: 'text.primary' }}>
             {isPaused ? <PlayArrowIcon /> : <PauseIcon />}
           </IconButton>
         </Tooltip>
         <Tooltip title="Download Logs">
-          <IconButton size="small" onClick={handleDownloadLogs} sx={{ color: '#fff' }}>
+          <IconButton size="small" onClick={handleDownloadLogs} sx={{ color: 'text.primary' }}>
             <DownloadIcon />
           </IconButton>
         </Tooltip>
         <Tooltip title="Clear Logs">
-          <IconButton size="small" onClick={handleClearLogs} sx={{ color: '#fff' }}>
+          <IconButton size="small" onClick={handleClearLogs} sx={{ color: 'text.primary' }}>
             <DeleteSweepIcon />
           </IconButton>
         </Tooltip>
         {onClose && (
           <Tooltip title="Close">
-            <IconButton size="small" onClick={onClose} sx={{ color: '#fff' }}>
+            <IconButton size="small" onClick={onClose} sx={{ color: 'text.primary' }}>
               <CloseIcon />
             </IconButton>
           </Tooltip>
@@ -156,7 +156,7 @@ const LogViewer: React.FC<LogViewerProps> = ({ onClose }) => {
       </Box>
 
       {/* Filter */}
-      <Box sx={{ p: 1, bgcolor: '#2d2d2d', borderBottom: 1, borderColor: 'divider' }}>
+      <Box sx={{ p: 1, bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
         <TextField
           size="small"
           fullWidth
@@ -165,13 +165,12 @@ const LogViewer: React.FC<LogViewerProps> = ({ onClose }) => {
           onChange={(e) => setFilterText(e.target.value)}
           sx={{
             '& .MuiOutlinedInput-root': {
-              color: '#fff',
-              bgcolor: '#1e1e1e',
-              '& fieldset': { borderColor: '#424242' },
-              '&:hover fieldset': { borderColor: '#666' },
-              '&.Mui-focused fieldset': { borderColor: '#90caf9' },
+              color: 'text.primary',
+              bgcolor: 'background.default',
+              '& fieldset': { borderColor: 'divider' },
+              '&:hover fieldset': { borderColor: 'text.secondary' },
+              '&.Mui-focused fieldset': { borderColor: 'primary.main' },
             },
-            '& .MuiInputBase-input::placeholder': { color: '#999', opacity: 1 }
           }}
         />
       </Box>
@@ -184,7 +183,7 @@ const LogViewer: React.FC<LogViewerProps> = ({ onClose }) => {
           p: 1,
           fontFamily: 'monospace',
           fontSize: '0.8rem',
-          color: '#e0e0e0'
+          color: 'text.primary'
         }}
         onScroll={(e) => {
           const target = e.target as HTMLDivElement;
@@ -193,7 +192,7 @@ const LogViewer: React.FC<LogViewerProps> = ({ onClose }) => {
         }}
       >
         {filteredLogs.length === 0 ? (
-          <Typography sx={{ color: '#999', textAlign: 'center', mt: 4 }}>
+          <Typography sx={{ color: 'text.secondary', textAlign: 'center', mt: 4 }}>
             No logs to display
           </Typography>
         ) : (
@@ -205,15 +204,15 @@ const LogViewer: React.FC<LogViewerProps> = ({ onClose }) => {
                 p: 0.5,
                 borderLeft: 3,
                 borderColor: getLevelColor(log.level),
-                bgcolor: '#252525',
+                bgcolor: 'action.hover',
                 borderRadius: 0.5,
-                '&:hover': { bgcolor: '#2a2a2a' }
+                '&:hover': { bgcolor: 'action.selected' }
               }}
             >
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'baseline', flexWrap: 'wrap' }}>
                 <Typography 
                   component="span" 
-                  sx={{ color: '#666', fontSize: '0.75rem', minWidth: 80 }}
+                  sx={{ color: 'text.secondary', fontSize: '0.75rem', minWidth: 80 }}
                 >
                   {new Date(log.timestamp).toLocaleTimeString()}
                 </Typography>
@@ -224,18 +223,18 @@ const LogViewer: React.FC<LogViewerProps> = ({ onClose }) => {
                     height: 18,
                     fontSize: '0.7rem',
                     bgcolor: getLevelColor(log.level),
-                    color: '#fff',
+                    color: 'common.white',
                     fontWeight: 'bold'
                   }}
                 />
                 <Typography 
                   component="span" 
-                  sx={{ color: '#90caf9', fontSize: '0.75rem' }}
+                  sx={{ color: 'primary.main', fontSize: '0.75rem' }}
                 >
                   {log.logger}
                 </Typography>
               </Box>
-              <Typography sx={{ mt: 0.5, color: '#e0e0e0', wordBreak: 'break-word' }}>
+              <Typography sx={{ mt: 0.5, color: 'text.primary', wordBreak: 'break-word' }}>
                 {log.message}
               </Typography>
             </Box>

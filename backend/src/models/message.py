@@ -76,6 +76,51 @@ class MailMessage:
             has_attachments=has_attachments,
         )
 
+    def get_body_text(self) -> str:
+        """Extract full plain text body from email payload.
+
+        Returns:
+            Full email body text, or snippet as fallback
+        """
+        import base64
+
+        if not self.payload:
+            return self.snippet or ""
+
+        def _extract_text_from_part(part: Dict[str, Any]) -> str:
+            """Recursively extract text from a MIME part."""
+            # Check if this part has a body
+            body = part.get("body", {})
+            if body.get("data"):
+                try:
+                    # Decode base64 data
+                    decoded = base64.urlsafe_b64decode(body["data"]).decode("utf-8", errors="ignore")
+                    return decoded
+                except Exception:
+                    pass
+
+            # Recursively process nested parts
+            parts = part.get("parts", [])
+            text_parts = []
+            for subpart in parts:
+                mime_type = subpart.get("mimeType", "")
+                # Prefer text/plain, but accept text/html as fallback
+                if "text/plain" in mime_type:
+                    text_parts.insert(0, _extract_text_from_part(subpart))  # Prioritize plain text
+                elif "text/html" in mime_type:
+                    text_parts.append(_extract_text_from_part(subpart))
+                elif "multipart" in mime_type:
+                    text_parts.append(_extract_text_from_part(subpart))
+
+            return "\n".join(filter(None, text_parts))
+
+        try:
+            body_text = _extract_text_from_part(self.payload)
+            # Return body if found, otherwise fallback to snippet
+            return body_text.strip() if body_text.strip() else (self.snippet or "")
+        except Exception:
+            return self.snippet or ""
+
     @staticmethod
     def _has_attachments(payload: Optional[Dict[str, Any]]) -> bool:
         """Check if the message payload contains attachments.

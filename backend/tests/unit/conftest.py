@@ -223,3 +223,72 @@ def handler_dependencies(sample_emails, llm_processor, context_builder, mock_emb
         "context_builder": context_builder,
         "embedder": mock_embedding_service,
     }
+
+
+@pytest.fixture
+def sample_emails_with_payloads():
+    """Sample emails enhanced with full body payloads for testing get_body_text()."""
+    import base64
+    from .fixtures_payloads import (
+        make_simple_text_payload,
+        make_multipart_payload,
+        make_long_email_payload
+    )
+    
+    storage = InMemoryStorage()
+    storage.init_db()
+    
+    # Email 1: Simple text payload
+    body1 = "This is the full body content for email 1. " * 10
+    email1 = MailMessage(
+        id="email1",
+        thread_id="t1",
+        from_="sender1@example.com",
+        subject="Email with simple text",
+        snippet="This is the full body...",
+        internal_date=1733050800000,
+        payload=make_simple_text_payload(body1),
+        labels=["INBOX"]
+    )
+    
+    # Email 2: Multipart payload (plain + HTML)
+    body2_plain = "This is the plain text version of email 2. " * 10
+    body2_html = "<p>This is the <b>HTML</b> version of email 2.</p>" * 10
+    email2 = MailMessage(
+        id="email2",
+        thread_id="t2",
+        from_="sender2@example.com",
+        subject="Email with multipart",
+        snippet="This is the plain text...",
+        internal_date=1733050800000 - 86400000,
+        payload=make_multipart_payload(body2_plain, body2_html),
+        labels=["INBOX"]
+    )
+    
+    # Email 3: Long email payload
+    email3 = MailMessage(
+        id="email3",
+        thread_id="t3",
+        from_="sender3@example.com",
+        subject="Very long email",
+        snippet="This is paragraph 1...",
+        internal_date=1733050800000 - 2 * 86400000,
+        payload=make_long_email_payload(50),
+        labels=["INBOX"]
+    )
+    
+    storage.save_message(email1)
+    storage.save_message(email2)
+    storage.save_message(email3)
+    
+    return storage
+
+
+@pytest.fixture
+def mock_cross_encoder():
+    """Mock sentence-transformers CrossEncoder for reranking tests."""
+    from unittest.mock import MagicMock
+    mock = MagicMock()
+    # Return descending scores to simulate reranking
+    mock.predict = MagicMock(return_value=[0.9, 0.7, 0.5, 0.3, 0.1])
+    return mock

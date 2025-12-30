@@ -11,6 +11,7 @@ Quick links
 - Prompt templates: `backend/src/services/prompt_templates.py`
 - Background job scripts: `backend/src/jobs/` (classify_all.py, embed_all_emails.py, pull_messages.py, etc.)
 - Entry points / CLI: `backend/cli.py`
+- **Documentation:** `docs/QUERY_FLOW.md` (complete query pipeline), `docs/RAG_DOC.md` (embeddings/vector setup)
 
 Contents
 - Overview
@@ -32,7 +33,7 @@ The project organizes email processing into a few runtime actors:
 3. RAG Engine - retrieval + generation flow for question-answering over emails. See `backend/src/services/rag_engine.py`.
 
 Notes about the codebase and authoritative source
-- Several README files are out-of-date. Prefer reading the actual code in `backend/src/` to understand current behaviour (especially LLM and RAG implementations).
+- The `docs/` directory contains current documentation: `QUERY_FLOW.md` (complete query pipeline) and `RAG_DOC.md` (embedding/vector setup). For implementation details, refer to the actual code in `backend/src/`.
 
 ---
 
@@ -106,12 +107,52 @@ File: `backend/src/services/rag_engine.py`
 - Handlers: `ConversationHandler`, `AggregationHandler`, `SenderHandler`, `AttachmentHandler`, `ClassificationHandler`, `TemporalHandler`, `SemanticHandler`.
 - Each handler uses `ContextBuilder` to format email data and `LLMProcessor` to generate natural language responses.
 
+**Retrieval Strategy (Industry-Standard Hybrid Search):**
+
+The semantic search handler implements state-of-the-art retrieval combining:
+
+1. **Hybrid Search (Vector + Keyword)**
+   - Combines semantic vector search (pgvector) with PostgreSQL full-text search (tsvector/BM25-like)
+   - Uses Reciprocal Rank Fusion (RRF) to merge ranked results from both methods
+   - Default weights: 60% vector, 40% keyword (configurable)
+   - Retrieves 50 candidates from each method before fusion
+
+2. **Cross-Encoder Reranking**
+   - Reranks top-50 hybrid results using `cross-encoder/ms-marco-MiniLM-L-6-v2`
+   - More accurate relevance scoring than bi-encoder embeddings
+   - Returns final top-5 results to LLM for answer generation
+
+3. **Full Email Context**
+   - Context builder uses full email body (up to 2000 chars per email) instead of snippet
+   - Significantly improves LLM answer quality with complete information
+   - Auto-truncates long emails to stay within context windows
+
+Implementation files:
+- Hybrid search: `backend/src/storage/postgres_storage.py` (methods: `keyword_search`, `hybrid_search`)
+- Reranking: `backend/src/services/query_handlers/semantic.py` (method: `_rerank_results`)
+- Context assembly: `backend/src/services/context_builder.py` (uses `message.get_body_text()`)
+
 ---
 
 ## How to run (developer / operator quick start)
-Always verify real behaviour by checking the code (configs in `llm_processor.py`, `rag_engine.py`) — the README files may be outdated.
+For complete query processing details, see `docs/QUERY_FLOW.md`. For embeddings and vector search setup, see `docs/RAG_DOC.md`.
 
 Note: If not running in a codespace, source your environment variables from `~/export.sh` before proceeding with the commands below.
+
+### Database Setup for Hybrid Search
+
+**First-time setup:** Run the full-text search migration to enable hybrid retrieval:
+
+```bash
+cd backend
+python run_migration.py src/storage/migrations/001_add_fulltext_search.sql
+```
+
+This adds:
+- `search_vector` tsvector column to messages table
+- GIN index for fast keyword search
+- Automatic trigger to update tsvector on new messages
+- Population of existing messages with search vectors
 
 Common run patterns (from the `backend` folder):
 
@@ -196,7 +237,7 @@ Other service variables (used by storage/RAG):
 - DB connection details (set in the environment or storage config)
 - `PGVECTOR` and `pgvector` extension — required for RAG/embedding search in Postgres
 
-Be cautious: the repository contains a few README files that are not kept in sync with code — check `backend/src/services/llm_processor.py` and `backend/src/services/rag_engine.py` for authoritative behaviour.
+For complete configuration details and query pipeline documentation, see `docs/QUERY_FLOW.md`.
 
 Provider examples (copy/paste)
 
@@ -268,6 +309,7 @@ Best practices: Keep agents small and focused, reuse shared services, make idemp
 - Logging: Jobs should produce human-readable logs. The LLMProcessor and RAG engine include `logger.info/debug` calls for major steps.
 - Timeouts and retries: LLM timeouts are configured in `LLMProcessor.TIMEOUT` (default 60s). Jobs should handle exceptions and optionally retry transient problems.
 - Privacy: embeddings are created locally by default (see `docs/RAG_DOC.md`). Avoid sending raw emails to external models unless intentionally configured via provider keys.
+- Query Pipeline: See `docs/QUERY_FLOW.md` for complete documentation on classification, handlers, and retrieval strategies.
 - Testing: The repo contains unit and integration tests (`backend/tests/`) — add tests for new agents and LLM flows where applicable.
   **Contributor testing expectations:**
 
@@ -306,9 +348,18 @@ make -C backend lint
 
 ## Troubleshooting & FAQ
 
+**Query quality issues:**
+- The system now uses hybrid search (vector + keyword) with cross-encoder reranking for better relevance
+- If queries still struggle, check:
+  - Run the full-text search migration: `python run_migration.py src/storage/migrations/001_add_fulltext_search.sql`
+  - Verify search_vector column exists: `SELECT search_vector FROM messages LIMIT 1;`
+  - Check cross-encoder loading in logs (should see "Loaded cross-encoder model")
+  - Adjust hybrid search weights in semantic handler if needed (currently 60% vector, 40% keyword)
+
 - LLM not configured: Check env vars (`OPENAI_API_KEY`, etc.) or set `LLM_PROVIDER=rules` for testing.
 - Ollama issues: Ensure `ollama serve` is running, set `OLLAMA_HOST`, pull models if needed.
 - Database / RAG: Confirm pgvector extension and migrations; see `docs/RAG_DOC.md`.
 - Timeouts: Default 60s; tune in `LLMProcessor.TIMEOUT` for slow models.
+- Classification issues: See `docs/QUERY_FLOW.md` for intent-based classification details and troubleshooting.
 
 Testing: Run with `pytest -q` in `backend/`. Use `LLM_PROVIDER=rules` for unit tests. For CI, mock LLM calls.

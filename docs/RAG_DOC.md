@@ -1,75 +1,62 @@
-## ✅ What's Been Implemented
+# RAG System — Embedding and Vector Database Setup
 
-Your email organization system now has a **complete RAG (Retrieval-Augmented Generation) pipeline**:
+This document covers the embedding service and vector database setup for semantic search.
+For the complete query processing pipeline (classification, handlers, hybrid search, LLM interactions), see [QUERY_FLOW.md](QUERY_FLOW.md).
 
-### 1. **Vector Database** ✓
-- ✅ pgvector extension installed in PostgreSQL 18
-- ✅ Vector columns added to `messages` table (384 dimensions)
-- ✅ `email_chunks` table created for long emails
-- ✅ HNSW indexes for fast similarity search (<50ms for 20k emails)
+**Status:** Production-ready components for embedding generation and vector search.
 
-### 2. **Embedding Service** ✓
-- ✅ sentence-transformers integration (all-MiniLM-L6-v2)
-## RAG System — Overview and Reference
-
-This document summarizes the implemented Retrieval-Augmented Generation (RAG)
-capabilities, how to run them, available endpoints, and where to find related
-code and migrations.
-
-Status: Production-ready components for embedding, vector search, and RAG
-querying are included. The Q&A endpoint requires a running LLM (e.g. Ollama)
-for full functionality.
-
-Contents
-- Overview
-- Quick start
-- API reference
-- Files and migrations
-- Architecture
-- Troubleshooting
-- Notes
-- Next steps
+## Contents
+- [Overview](#overview)
+- [Quick Start](#quick-start)
+- [Vector Database Setup](#vector-database-setup)
+- [Embedding Service](#embedding-service)
+- [API Endpoints](#api-endpoints)
+- [Batch Embedding Job](#batch-embedding-job)
+- [Troubleshooting](#troubleshooting)
 
 ## Overview
 
-- Vector storage: `pgvector` extension used with PostgreSQL.
-- Embeddings: `sentence-transformers` (all-MiniLM-L6-v2) generating 384-dim
-   vectors locally.
-- Chunking: long emails are split into overlapping chunks and stored in
-   `email_chunks` for retrieval.
-- Indexing: HNSW indexes on vector columns for fast similarity search.
-- Retrieval: Postgres-based similarity search (cosine) implemented in
-   `PostgresStorage`.
-- RAG: Query workflow that embeds the question, retrieves top-k documents,
-   constructs context, and forwards to an LLM for generation.
+The system uses local embeddings and vector search for semantic email retrieval:
 
-## Quick start
+- **Vector Storage:** `pgvector` extension in PostgreSQL with HNSW indexes
+- **Embedding Model:** `sentence-transformers/all-MiniLM-L6-v2` (384-dimensional vectors)
+- **Privacy:** All embeddings generated locally—no external API calls
+- **Chunking:** Long emails split into overlapping chunks in `email_chunks` table
+- **Search:** Cosine similarity search via pgvector
+- **Hybrid Search:** Combined vector + keyword search with RRF fusion (see [QUERY_FLOW.md](QUERY_FLOW.md#retrieval-pipeline-hybrid-search))
 
-Prerequisites:
-- PostgreSQL with `pgvector` extension available and migrations applied.
-- A Python virtual environment with project requirements installed.
-- (Optional for Q&A) Ollama or another LLM running locally for generation.
+**Key Features:**
+- ✅ Fast similarity search (<50ms for 20k emails)
+- ✅ HNSW Start
 
-Start the API server (development):
+### Prerequisites
+- PostgreSQL 12+ with `pgvector` extension
+- Python virtual environment with `requirements.txt` installed
+- Migrations applied (see [Vector Database Setup](#vector-database-setup))
+
+### Generate Embeddings
 
 ```bash
 cd backend
 source .venv/bin/activate
-uvicorn src.api:app --reload --host 0.0.0.0 --port 8000
+
+# Generate embeddings for all messages
+python -m src.jobs.embed_all_emails
+
+# Check embedding status
+curl http://localhost:8000/api/embedding_status | jq
 ```
 
-Run the semantic search test (does not require LLM):
+### Test Vector Search
 
 ```bash
-cd backend
-python examples/test_rag.py
-```
+# Find similar emails to a specific message
+curl "http://localhost:8000/api/similar/<message_id>?limit=5" | jq
 
-Run full Q&A (requires Ollama):
-
-```bash
-# terminal 1: start Ollama
-ollama serve
+# Semantic query (requires LLM running)
+curl -X POST http://localhost:8000/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Show me invoices from last month","top_k":5}' | jq
 
 # terminal 2: run test
 cd backend
@@ -77,35 +64,149 @@ python examples/test_rag.py
 ```
 
 ## API reference
+Vector Database Setup
 
-All endpoints are mounted under the API server (default port 8000).
+### Migration: Add Vector Columns
 
-- `GET /api/embedding_status`
-   - Returns embedding coverage and indexing state.
+**File:** `backend/src/storage/migrations/003_add_vector_columns.sql`
 
-- `POST /api/query`
-   - Request: JSON `{ "question": "...", "top_k": 5, "model": "gemma:2b" }`
-   - Behavior: embeds the question, retrieves top-k relevant contexts, calls
-      the configured LLM with constructed prompt, and returns generated answer
-      with source citations.
+This migration adds:
+- `embedding` column (vector(384)) to `messages` table
+- `email_chunks` table for long email chunking
+- HNSW indexes for fast similarity search
 
-- `GET /api/similar/{message_id}`
-   - Query similar messages (supports `?limit=`).
+**Run migration:**
+```bash
+cd backend
+python run_migration.py src/storage/migrations/003_add_vector_columns.sql
+```
 
-Examples:
+**Verify:**
+```sql
+-- Check vector column exists
+SELECT embedding FROM messages WHERE embedding IS NOT NULL LIMIT 1;
+
+-- Check email_chunks table
+SELECT COUNT(*) FROM email_chunks;
+
+-- Verify HNSW index
+SELECT indexname FROM pg_indexes 
+WHERE tablename = 'messages' 
+  AND indexname LIKE '%embedding%';
+```
+Key Files
+
+### Embedding Service
+- `backend/src/services/embedding_service.py` - Embedding generation and batching
+- `backend/src/jobs/embed_all_emails.py` - Batch job to embed all messages
+
+### Storage
+- `backend/src/storage/postgres_storage.py` - Vector search methods (`similarity_search()`, `hybrid_search()`)
+- `backend/src/storage/migrations/003_add_vector_columns.sql` - Vector database migration
+- `backend/src/storage/migrations/001_add_fulltext_search.sql` - Full-text search migration (for hybrid search)
+
+### API
+- `backend/src/api.py` - Endpoints: `/api/embedding_status`, `/api/query`, `/api/similar/{message_id}`
+
+### Query Pipeline
+- `backend/src/services/rag_engine.py` - Orchestrates query processing
+- `backend/src/services/query_handlers/semantic.py` - Semantic search handler with hybrid search and reranking
+
+See [QUERY_FLOW.md](QUERY_FLOW.md) for complete pipeline documentation.
+# Store in database
+for msg, embedding in zip(messages, embeddings):
+    storage.save_message_embedding(msg.id, embedding)
+```
+
+## Batch Embedding Job
+
+**File:** `backend/src/jobs/embed_all_emails.py`
+
+Generate embeddings for all messages in the database:
 
 ```bash
-# status
-curl http://localhost:8000/api/embedding_status | jq
-
-# semantic question (requires LLM)
-curl -X POST http://localhost:8000/api/query \
-   -H "Content-Type: application/json" \
-   -d '{"question":"Show me invoices from last year","top_k":5}' | jq
-
-# similar messages
-curl "http://localhost:8000/api/similar/<message_id>?limit=5" | jq
+cd backend
+python -m src.jobs.embed_all_emails
 ```
+
+**What it does:**
+1. Fetches all messages without embeddings
+2. Extracts full email body text
+3. Generates embeddings in batches
+4. Stores embeddings in `messages.embedding` column
+5. Creates chunks for long emails in `email_chunks` table
+
+**Progress tracking:**
+```
+Processing batch 1/10 (100 messages)
+Generated 100 embeddings in 2.3s
+Saved to database
+```
+
+## API Endpoints
+
+### GET /api/embedding_status
+
+Returns embedding coverage statistics.
+
+**Response:**
+```json
+{
+  "total_messages": 5000,
+  "embedded_messages": 4850,
+  "coverage_percent": 97.0,
+  "total_chunks": 1250
+}
+```
+
+### POST /api/query
+
+Semantic search with LLM answer generation. See [QUERY_FLOW.md](QUERY_FLOW.md) for complete query pipeline.
+
+**Request:**
+```json
+{
+  "question": "Show me invoices from last month",
+  "top_k": 5,
+  "similarity_threshold": 0.3
+}
+```
+
+**Response:**
+```json
+{
+  "answer": "Based on the emails...",
+  "sources": [
+    {
+      "message_id": "...",
+      "subject": "Invoice #1234",
+      "similarity": 0.85
+    }
+  ],
+  "query_type": "semantic",
+  "confidence": "high"
+}
+```
+
+### GET /api/similar/{message_id}
+
+Find similar emails to a given message.
+
+**Request:**
+```bash
+curl "http://localhost:8000/api/similar/msg123?limit=10"
+```
+
+**Response:**
+```json
+[
+  {
+    "message_id": "msg456",
+    "subject": "Similar email",
+    "similarity": 0.92,
+    "from": "sender@example.com"
+  }
+]
 
 ## Files and migrations
 
@@ -165,15 +266,81 @@ python src/jobs/embed_all_emails.py
 - Embeddings are created locally to preserve privacy; no external APIs are
    required for embedding generation.
 - Vector index performance depends on HNSW parameters and dataset size; the
-   current configuration is tuned for ~20k emails.
+### Embeddings Not Generated
 
-## Contact / Next steps
+**Check embedding status:**
+```bash
+curl http://localhost:8000/api/embedding_status | jq
+```
 
-For UI integration or additional features (hybrid filtering, re-ranking,
-frontend chat UI), see `docs/RAG_USAGE.md` for implementation notes and
-consider opening a feature branch.
+**Re-run batch job:**
+```bash
+cd backend
+python -m src.jobs.embed_all_emails
+```
 
-----
+**Verify embeddings in database:**
+```sql
+SELECT COUNT(*) FROM messages WHERE embedding IS NOT NULL;
+SELECT AVG(array_length(embedding::text::float[], 1)) FROM messages WHERE embedding IS NOT NULL;
+-- Should return 384 (embedding dimension)
+```
 
-End of reference documentation.
-└────────────────────┬────────────────────────────────────┘
+### Vector Search Returns No Results
+
+**Check if vector column exists:**
+```sql
+SELECT column_name FROM information_schema.columns 
+WHERE table_name = 'messages' AND column_name = 'embedding';
+```
+
+**Run migration if missing:**
+```bash
+python run_migration.py src/storage/migrations/003_add_vector_columns.sql
+```
+
+**Verify HNSW index:**
+```sql
+SELECT indexname FROM pg_indexes 
+WHERE tablename = 'messages' AND indexname LIKE '%embedding%';
+```
+
+### Poor Search Quality
+
+1. **Try hybrid search** - Combines vector + keyword search for better recall
+   - Ensure full-text search migration is run: `001_add_fulltext_search.sql`
+   - See [QUERY_FLOW.md](QUERY_FLOW.md#retrieval-pipeline-hybrid-search)
+
+2. **Adjust similarity threshold** - Lower threshold to get more results
+   ```python
+   results = storage.similarity_search(embedding, limit=10, threshold=0.2)
+   ```
+
+3. **Check embedding quality** - Ensure full email bodies are embedded, not just snippets
+   ```python
+   # Use full body text
+   text = message.get_body_text()  # Not message.snippet
+   embedding = embedder.embed_query(text)
+   ```
+
+### Performance Issues
+
+**Slow similarity search:**
+- Verify HNSW index exists (see above)
+- Tune HNSW parameters in migration if needed
+- Current config optimized for ~20k emails
+
+**Memory usage:**
+- Embedding model loads ~100MB into memory
+- Batch embedding processes 100 messages at a time
+- Adjust batch size in `embed_all_emails.py` if needed
+
+## Additional Resources
+
+- **Query Pipeline:** [QUERY_FLOW.md](QUERY_FLOW.md) - Complete query processing flow
+- **Database Schema:** [STORAGE_SCHEMA.md](STORAGE_SCHEMA.md) - Full schema documentation
+- **Background Jobs:** [../agents.md](../agents.md) - LLM processors and batch jobs
+
+---
+
+**Note:** Embeddings are generated locally to preserve privacy. No external APIs are required for embedding generation.

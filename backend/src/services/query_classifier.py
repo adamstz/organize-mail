@@ -42,29 +42,56 @@ class QueryClassifier:
                    'search-by-attachment', 'classification', 'filtered-temporal',
                    'temporal', 'semantic'
         """
+        logger.info("[QUERY CLASSIFIER] ========== Starting query classification ==========")
+        logger.info("[QUERY CLASSIFIER] Question: '%s'", question)
+        logger.info("[QUERY CLASSIFIER] Chat history length: %d", len(chat_history) if chat_history else 0)
+        
         # Check if this is a classification query using centralized module first
         if is_classification_query(question):
-            return 'classification'
-
-        # Check for contextual follow-up queries that should use classification with context
-        if chat_history and self._is_contextual_followup(question, chat_history):
-            logger.debug("[QUERY CLASSIFIER] Detected contextual follow-up, routing to classification")
+            logger.info("[QUERY CLASSIFIER] ✓ Detected as 'classification' via is_classification_query()")
             return 'classification'
 
         # Use LLM to intelligently classify the query type
-        logger.debug("[QUERY CLASSIFIER] Using LLM to classify query type")
+        # LLM now handles chat history context internally
+        logger.info("[QUERY CLASSIFIER] Using LLM to classify query type")
 
         try:
+            # Build chat context string for the prompt
+            chat_context = ""
+            if chat_history and len(chat_history) >= 2:
+                recent_messages = chat_history[-4:]  # Last 2 exchanges (4 messages)
+                context_lines = []
+                for msg in recent_messages:
+                    role = msg.get('role', 'unknown')
+                    content = msg.get('content', '')[:100]  # Truncate for brevity
+                    context_lines.append(f"{role}: {content}")
+                chat_context = "Previous conversation context:\n" + "\n".join(context_lines) + "\n"
+                logger.debug("[QUERY CLASSIFIER] Built chat context: %s", chat_context[:200])
+
             classification_prompt = QUERY_CLASSIFICATION_PROMPT.replace("{question}", question)
+            classification_prompt = classification_prompt.replace("{chat_context}", chat_context)
+            
+            logger.info("[QUERY CLASSIFIER] ========== Sending prompt to LLM ==========")
+            logger.info("[QUERY CLASSIFIER] Full prompt:\n%s", classification_prompt)
+            
             classification = self._call_llm_simple(classification_prompt).strip().lower()
+            
+            logger.info("[QUERY CLASSIFIER] ========== LLM Response Received ==========")
+            logger.info("[QUERY CLASSIFIER] Raw LLM response: '%s'", classification)
+            
             detected_type = self._parse_classification(classification)
 
-            logger.debug("[QUERY CLASSIFIER] LLM classified query as: %s", detected_type)
+            logger.info("[QUERY CLASSIFIER] ========== Classification Result ==========")
+            logger.info("[QUERY CLASSIFIER] Detected type: %s", detected_type)
             return detected_type
 
         except Exception as e:
-            logger.debug("[QUERY CLASSIFIER] LLM classification failed (%s), using fallback heuristic", e)
-            return self._fallback_classification(question)
+            logger.warning("[QUERY CLASSIFIER] ========== LLM Classification Failed ==========")
+            logger.warning("[QUERY CLASSIFIER] Error: %s", e)
+            logger.warning("[QUERY CLASSIFIER] Falling back to heuristic classification")
+            fallback_type = self._fallback_classification(question)
+            logger.warning("[QUERY CLASSIFIER] Fallback returned: %s", fallback_type)
+            return fallback_type
 
     def _call_llm_simple(self, prompt: str) -> str:
         """Call the LLM for classification."""
@@ -90,31 +117,55 @@ class QueryClassifier:
         Returns:
             Normalized query type string
         """
-        # Handle common LLM preambles like "the answer is X"
-        if 'answer is' in classification:
-            parts = classification.split('answer is')
-            if len(parts) > 1:
-                after_answer = parts[1].strip()
-                first_word = after_answer.strip('"\'').split()[0] if after_answer else ''
-            else:
-                first_word = classification.split()[0] if classification else ''
-        else:
-            first_word = classification.split()[0] if classification else ''
-
+        logger.debug("[QUERY CLASSIFIER] Parsing classification: '%s'", classification)
+        
+        # Clean up the response - remove common prefixes and suffixes
+        cleaned = classification.lower().strip()
+        
+        # Remove common LLM preambles
+        prefixes_to_remove = [
+            'the answer is', 'answer is', 'classification:', 
+            'type:', 'the type is', 'this is a', 'this is',
+            'i would classify this as', 'i classify this as'
+        ]
+        for prefix in prefixes_to_remove:
+            if cleaned.startswith(prefix):
+                cleaned = cleaned[len(prefix):].strip()
+                logger.debug("[QUERY CLASSIFIER] Removed prefix '%s': '%s'", prefix, cleaned)
+        
+        # Get first word/phrase (handle hyphenated types)
+        words = cleaned.split()
+        first_word = words[0] if words else ''
+        
+        logger.debug("[QUERY CLASSIFIER] Extracted first word: '%s'", first_word)
+        
         # Clean up punctuation
-        first_word = first_word.strip('.,!?":;')
+        first_word = first_word.strip('.,!?":;()[]{}')
+        logger.debug("[QUERY CLASSIFIER] After punctuation cleanup: '%s'", first_word)
 
         # Normalize underscores to hyphens
         first_word = first_word.replace('_', '-')
+        logger.debug("[QUERY CLASSIFIER] After underscore normalization: '%s'", first_word)
 
-        # Check for valid types
+        # Check for valid types (exact match)
         if first_word in self.VALID_TYPES:
+            logger.debug("[QUERY CLASSIFIER] ✓ Matched valid type: %s", first_word)
             return first_word
+        
+        # Try to find valid type anywhere in the response
+        logger.debug("[QUERY CLASSIFIER] First word not in valid types, searching response...")
+        for valid_type in self.VALID_TYPES:
+            if valid_type in cleaned:
+                logger.debug("[QUERY CLASSIFIER] ✓ Found valid type in response: %s", valid_type)
+                return valid_type
 
         # Map common response words to actual types
+        logger.debug("[QUERY CLASSIFIER] Trying fallback mappings...")
         if first_word in ('recent', 'latest', 'newest', 'oldest'):
+            logger.debug("[QUERY CLASSIFIER] Mapped '%s' → filtered-temporal", first_word)
             return 'filtered-temporal'
         elif first_word == 'count':
+            logger.debug("[QUERY CLASSIFIER] Mapped 'count' → aggregation")
             return 'aggregation'
         elif 'conversation' in classification or first_word in ('hello', 'hi', 'thanks', 'help'):
             return 'conversation'

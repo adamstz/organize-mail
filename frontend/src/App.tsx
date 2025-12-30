@@ -1,9 +1,11 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { ThemeProvider, CssBaseline, Container, AppBar, Toolbar, Typography, Box, IconButton, Tooltip } from '@mui/material';
 import { createTheme } from '@mui/material/styles';
 import ChatIcon from '@mui/icons-material/Chat';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import TerminalIcon from '@mui/icons-material/Terminal';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
+import LightModeIcon from '@mui/icons-material/LightMode';
 import EmailList from './components/EmailList';
 import EmailToolbar from './components/EmailToolbar';
 import SyncStatus from './components/SyncStatus';
@@ -11,16 +13,53 @@ import ChatInterface from './components/ChatInterface';
 import LogViewer from './components/LogViewer';
 import { logger } from './utils/logger';
 
-const theme = createTheme({
+const getTheme = (mode: 'light' | 'dark') => createTheme({
   palette: {
-    mode: 'light',
+    mode,
     primary: {
-      main: '#1976d2',
+      main: mode === 'dark' ? '#14b8a6' : '#0891b2',
+      light: mode === 'dark' ? '#2dd4bf' : '#06b6d4',
+      dark: mode === 'dark' ? '#0d9488' : '#0e7490',
+    },
+    secondary: {
+      main: mode === 'dark' ? '#8b5cf6' : '#7c3aed',
+    },
+    error: {
+      main: '#ef4444',
+    },
+    warning: {
+      main: '#f59e0b',
+    },
+    success: {
+      main: '#10b981',
+    },
+    info: {
+      main: mode === 'dark' ? '#3b82f6' : '#2563eb',
+    },
+    background: {
+      default: mode === 'dark' ? '#0a0a0a' : '#f8fafc',
+      paper: mode === 'dark' ? '#1a1a1a' : '#ffffff',
+    },
+    text: {
+      primary: mode === 'dark' ? '#e5e7eb' : '#1f2937',
+      secondary: mode === 'dark' ? '#9ca3af' : '#6b7280',
+    },
+    divider: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.12)',
+  },
+  transitions: {
+    duration: {
+      shortest: 150,
+      shorter: 200,
+      short: 250,
     },
   },
 });
 
 const App: React.FC = () => {
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('themeMode');
+    return (saved as 'light' | 'dark') || 'dark';
+  });
   const [filters, setFilters] = useState<{
     priority: string | null;
     labels: string[];
@@ -35,9 +74,19 @@ const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [isChatVisible, setIsChatVisible] = useState(true);
   const [isLogsVisible, setIsLogsVisible] = useState(false);
-  const [chatWidth, setChatWidth] = useState(41.67); // Default ~5/12 columns in percentage
+  const [chatWidth, setChatWidth] = useState(41.67);
   const [isDragging, setIsDragging] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const theme = useMemo(() => getTheme(themeMode), [themeMode]);
+
+  const toggleTheme = () => {
+    setThemeMode((prev) => {
+      const newMode = prev === 'light' ? 'dark' : 'light';
+      localStorage.setItem('themeMode', newMode);
+      return newMode;
+    });
+  };
 
   // Fetch available models and auto-select first one on mount
   useEffect(() => {
@@ -181,11 +230,19 @@ const App: React.FC = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <AppBar position="static">
+      <AppBar position="static" elevation={0}>
         <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 600 }}>
             Organize Mail
           </Typography>
+          <Tooltip title={themeMode === 'dark' ? "Light Mode" : "Dark Mode"}>
+            <IconButton
+              color="inherit"
+              onClick={toggleTheme}
+            >
+              {themeMode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
+            </IconButton>
+          </Tooltip>
           <Tooltip title={isLogsVisible ? "Hide Logs" : "Show Logs"}>
             <IconButton
               color="inherit"
@@ -211,9 +268,9 @@ const App: React.FC = () => {
         disableGutters
         className="resizable-container"
         sx={{
-          height: 'calc(100vh - 64px)', // Subtract AppBar height
+          height: 'calc(100vh - 64px)',
           width: '100vw',
-          bgcolor: 'grey.100',
+          bgcolor: 'background.default',
           display: 'flex',
           p: 0,
           overflow: 'hidden',

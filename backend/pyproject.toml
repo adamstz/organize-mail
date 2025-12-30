@@ -1,18 +1,13 @@
-[tool.poetry]
-name = "organize-mail-backend"
-version = "0.1.0"
-description = "Backend for organize-mail"
-authors = ["you <you@example.com>"]
+# Dependencies are managed in requirements.txt
+# This file contains only pytest configuration
 
-[tool.poetry.dependencies]
-python = "^3.11"
-fastapi = "^0.100"
-uvicorn = "^0.22"
-google-api-python-client = "^2.0"
-google-auth-oauthlib = "^1.0"
-google-cloud-pubsub = "^3.0"
-pydantic = "^2.5"
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+[tool.pytest.ini_options]
+# Set Python path to include backend directory for src imports
+pythonpath = "."
+# Register custom markers
+markers = [
+    "slow: marks tests as slow (deselected by default)",
+    "integration: marks tests as integration tests requiring database",
+]
+# Skip slow tests by default - run with `pytest -m slow` or `pytest --run-slow` to include them
+addopts = "-m 'not slow'"
